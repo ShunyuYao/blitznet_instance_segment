@@ -12,6 +12,7 @@ import config
 from config import args, MEAN_COLOR
 from paths import INIT_WEIGHTS_DIR
 
+import tf.keras.layers as KL
 
 log = logging.getLogger()
 slim = tf.contrib.slim
@@ -30,6 +31,7 @@ class ResNet(object):
         self.reuse = reuse
         self.training = training
         self.layers = self.config['layers']
+        self.roi_bounds = roi_bounds(config)
         if depth == 50:
             self.num_block3 = 5
             self.scope = DEFAULT_SCOPE_50
@@ -135,8 +137,12 @@ class ResNet(object):
                         tf.reduce_mean(self.outputs['ssd_back/block_rev6/shortcut'],
                                        [1, 2], name='pool6', keep_dims=True)
 
-    def create_multibox_head(self, num_classes):
-        """Creates outputs for classification and localization of all candidate bboxes"""
+    def create_multibox_head(self, num_classes, input_ROIs):
+        """
+        Creates outputs for classification and localization of all candidate bboxes
+        Params
+        input_ROIs: [num_ROIs, c, w, h]?
+        """
         locations = []
         confidences = []
         with tf.variable_scope(DEFAULT_SSD_SCOPE, reuse=self.reuse) as sc:
@@ -157,6 +163,7 @@ class ResNet(object):
                             raise ValueError
                         src_layer = self.outputs[layer_name]
                         shape = src_layer.get_shape()
+                        w, h = shape[1], shape[2]
                         wh = shape[1] * shape[2]
                         batch_size = shape[0]
                         num_priors = len(self.config['aspect_ratios'][i])*2 + 2
@@ -179,6 +186,20 @@ class ResNet(object):
                     self.outputs.update(ssd_end_points)
         all_confidences = tf.concat(confidences, 1)
         all_locations = tf.concat(locations, 1)
+        k = args.top_k_confidences
+        # 统计最后一个维度 [layer_num, batch_size, wh * num_priors]
+        biggest_confidence, _ = tf.nn.top_k(all_confidences, 1)
+        top_k_inds_perbatch = []
+        # for each batch
+        for i in batch_size:
+            confidence_i = biggest_confidence[:, i]
+            layer_num, wh_mul_numPriors = tf.shape(confidence_i)
+            # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
+            top_values, top_indices = tf.nn.top_k(tf.reshape(confidence_i, (-1,)), k)
+            tf.map_fn(self.roi_bounds.get_roi_feature_pos(), top_indices)
+            top_k_inds_perbatch.append(top_indices)
+
+        top_k_inds = tf.concat(top_k_inds_perbatch, 1)
         self.outputs['location'] = all_locations
         self.outputs['confidence'] = all_confidences
         return all_confidences, all_locations
@@ -204,6 +225,52 @@ class ResNet(object):
                 self.outputs['segmentation'] = seg_logits
                 return self.outputs['segmentation']
 
+    def create_instance_head(self, num_classes, ROIs, train_bn=True):
+        """
+        instance segmentation mask head
+        Params
+        ROIs: [batch, num_rois, H, W, C], the C of the initial Rois may not identical
+        so it needs a preprocess first.
+        """
+        with tf.variable_scope(DEFAULT_SSD_SCOPE) as sc:
+            seg_materials = []
+            seg_size = self.config['fm_sizes'][0]
+            x = PyramidROIAlign([pool_size, pool_size],
+                                name="roi_align_mask")([rois, image_meta] + feature_maps)
+
+            x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                                   name="instance_mask_deconv1")(x)
+            # Conv layers
+            x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                                   name="instance_mask_conv1")(x)
+            x = KL.TimeDistributed(BatchNorm(),
+                                   name='instance_mask_bn1')(x, training=train_bn)
+            x = KL.Activation('relu')(x)
+
+            x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                                   name="instance_mask_conv2")(x)
+            x = KL.TimeDistributed(BatchNorm(),
+                                   name='instance_mask_bn2')(x, training=train_bn)
+            x = KL.Activation('relu')(x)
+
+            x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                                   name="instance_mask_conv3")(x)
+            x = KL.TimeDistributed(BatchNorm(),
+                                   name='instance_mask_bn3')(x, training=train_bn)
+            x = KL.Activation('relu')(x)
+
+            x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                                   name="instance_mask_conv4")(x)
+            x = KL.TimeDistributed(BatchNorm(),
+                                   name='instance_mask_bn4')(x, training=train_bn)
+            x = KL.Activation('relu')(x)
+
+            x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                                   name="instance_mask_deconv2")(x)
+            x = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
+                                   name="instance_mask")(x)
+            return x
+
     def get_imagenet_init(self, opt):
         """optimizer is useful to extract slots corresponding to Adam or Momentum
         and exclude them from checkpoint assigning"""
@@ -217,3 +284,60 @@ class ResNet(object):
         variables = list(set(variables) - slots)
         return slim.assign_from_checkpoint(self.ckpt, variables) + (variables, )
 
+
+class roi_bounds(object):
+    def __init__(self, config):
+        self.config = config
+        self.fm_sizes = self.config["fm_sizes"]
+        self.roi_bound = [0]
+        self.num_priors = []
+
+        for i, fm_size in enumerate(self.fm_sizes):
+            num_prior = len(self.config['aspect_ratios'][i])*2 + 2
+            self.num_priors.append(num_prior)
+            roi_bound_i = self.roi_bound[-1] + fm_size ** 2 * num_prior
+            self.roi_bound.append(layer_i_num_rois)
+
+    def get_roi_feature_pos(self, roi_idx):
+        """give the idx of the roi, output the [layer, w, h] of roi"""
+        roi_bound = self.roi_bound
+        for i in range(len(roi_bound)-1):
+            if roi_idx >= roi_bound[i] and roi_idx < roi_bound[i+1]:
+                layer_num = i
+                rel_roi_idx = roi_idx - roi_bound[i]
+                rel_roi_idx = rel_roi_idx // self.num_priors[i]
+                w = rel_roi_idx // self.fm_sizes[i]
+                h = rel_roi_idx % self.fm_sizes[i]
+
+        return layer_num, w, h
+
+        def get_from_arrs(self, roi_idxs):
+            """give the idx of the roi, output the [layer, w, h] of roi"""
+            roi_bound = self.roi_bound
+            for i in range(len(roi_bound)-1):
+                if roi_idx >= roi_bound[i] and roi_idx < roi_bound[i+1]:
+                    layer_num = i
+                    rel_roi_idx = roi_idx - roi_bound[i]
+                    rel_roi_idx = rel_roi_idx // self.num_priors[i]
+                    w = rel_roi_idx // self.fm_sizes[i]
+                    h = rel_roi_idx % self.fm_sizes[i]
+
+            return layer_num, w, h
+
+
+class BatchNorm(KL.BatchNormalization):
+    """Extends the Keras BatchNormalization class to allow a central place
+    to make changes if needed.
+
+    Batch normalization has a negative effect on training if batches are small
+    so this layer is often frozen (via setting in Config class) and functions
+    as linear layer.
+    """
+    def call(self, inputs, training=None):
+        """
+        Note about training values:
+            None: Train BN layers. This is the normal mode
+            False: Freeze BN layers. Good when batch size is small
+            True: (don't use). Set layer in training mode even when making inferences
+        """
+        return super(self.__class__, self).call(inputs, training=training)

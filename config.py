@@ -132,6 +132,13 @@ parser.add_argument("--use_profile", default=False, action='store_true')
 parser.add_argument("--profile_step", default=50, type=int)
 parser.add_argument("--timeline", default=False, action='store_true')
 
+# args for the instance segmentation
+
+# if you want a net to perform instance segmentation
+parser.add_argument("--instance", default=False, action='store_true')
+# the number of rois for instance segmentation
+parser.add_argument("--top_k_confidences", default=100)
+
 args = parser.parse_args()
 train_dir = os.path.join(CKPT_ROOT, args.run_name)
 
