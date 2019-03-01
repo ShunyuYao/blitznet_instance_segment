@@ -11,7 +11,7 @@ from utils import print_variables
 import config
 from config import args, MEAN_COLOR
 from paths import INIT_WEIGHTS_DIR
-
+import numpy as np
 import tf.keras.layers as KL
 
 log = logging.getLogger()
@@ -196,10 +196,11 @@ class ResNet(object):
             layer_num, wh_mul_numPriors = tf.shape(confidence_i)
             # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
             top_values, top_indices = tf.nn.top_k(tf.reshape(confidence_i, (-1,)), k)
-            tf.map_fn(self.roi_bounds.get_roi_feature_pos(), top_indices)
+            self.roi_bounds.get_from_arrs(top_indices, top_values)
             top_k_inds_perbatch.append(top_indices)
 
-        top_k_inds = tf.concat(top_k_inds_perbatch, 1)
+        self.top_k_inds = top_k_inds_perbatch # tf.concat(top_k_inds_perbatch, 1)
+        print(self.top_k_inds[0])
         self.outputs['location'] = all_locations
         self.outputs['confidence'] = all_confidences
         return all_confidences, all_locations
@@ -309,20 +310,16 @@ class roi_bounds(object):
                 w = rel_roi_idx // self.fm_sizes[i]
                 h = rel_roi_idx % self.fm_sizes[i]
 
-        return layer_num, w, h
+        return np.array([layer_num, w, h])
 
-        def get_from_arrs(self, roi_idxs):
-            """give the idx of the roi, output the [layer, w, h] of roi"""
-            roi_bound = self.roi_bound
-            for i in range(len(roi_bound)-1):
-                if roi_idx >= roi_bound[i] and roi_idx < roi_bound[i+1]:
-                    layer_num = i
-                    rel_roi_idx = roi_idx - roi_bound[i]
-                    rel_roi_idx = rel_roi_idx // self.num_priors[i]
-                    w = rel_roi_idx // self.fm_sizes[i]
-                    h = rel_roi_idx % self.fm_sizes[i]
-
-            return layer_num, w, h
+    def get_from_arrs(self, roi_idxs, top_values):
+        with tf.Session as sess:
+            roi_idx_arr = roi_idxs.eval()
+            top_values_arr = top_values.eval()
+        roi_arr = np.concatenate(list(map(get_roi_feature_pos,
+                                          roi_idx_arr))).reshape(-1, 3)
+        roi_arr = np.concatenate([roi_arr, top_values_arr.reshape(-1, 1)], axis=1)
+        return roi_arr
 
 
 class BatchNorm(KL.BatchNormalization):
