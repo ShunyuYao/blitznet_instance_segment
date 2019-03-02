@@ -176,7 +176,7 @@ class ResNet(object):
                         conf = slim.conv2d(src_layer, num_priors * num_classes,
                                            [args.det_kernel, args.det_kernel],
                                            scope='confidence'+scope_suffix)
-                            conf_sh = tf.stack([batch_size, wh * num_priors, num_classes])
+                        conf_sh = tf.stack([batch_size, wh * num_priors, num_classes])
                         confidences.append(tf.reshape(conf, conf_sh))
                         tf.summary.histogram("confidence/"+layer_name, confidences[-1])
 
@@ -316,7 +316,7 @@ class roi_bounds(object):
         return np.array([layer_num, w, h])
 
     def get_from_arrs(self, roi_idxs, top_values):
-        with tf.Session as sess:
+        with tf.Session() as sess:
             roi_idx_arr = roi_idxs.eval()
             top_values_arr = top_values.eval()
         roi_arr = np.concatenate(list(map(get_roi_feature_pos,
