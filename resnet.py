@@ -12,7 +12,7 @@ import config
 from config import args, MEAN_COLOR
 from paths import INIT_WEIGHTS_DIR
 import numpy as np
-import tf.keras.layers as KL
+import keras.layers as KL
 
 log = logging.getLogger()
 slim = tf.contrib.slim
@@ -137,11 +137,9 @@ class ResNet(object):
                         tf.reduce_mean(self.outputs['ssd_back/block_rev6/shortcut'],
                                        [1, 2], name='pool6', keep_dims=True)
 
-    def create_multibox_head(self, num_classes, input_ROIs):
+    def create_multibox_head(self, num_classes):
         """
         Creates outputs for classification and localization of all candidate bboxes
-        Params
-        input_ROIs: [num_ROIs, c, w, h]?
         """
         locations = []
         confidences = []
@@ -191,7 +189,7 @@ class ResNet(object):
         biggest_confidence, _ = tf.nn.top_k(all_confidences, 1)
         top_k_inds_perbatch = []
         # for each batch
-        for i in batch_size:
+        for i in range(batch_size):
             confidence_i = biggest_confidence[:, i]
             layer_num, wh_mul_numPriors = tf.shape(confidence_i)
             # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
@@ -297,7 +295,7 @@ class roi_bounds(object):
             num_prior = len(self.config['aspect_ratios'][i])*2 + 2
             self.num_priors.append(num_prior)
             roi_bound_i = self.roi_bound[-1] + fm_size ** 2 * num_prior
-            self.roi_bound.append(layer_i_num_rois)
+            self.roi_bound.append(roi_bound_i)
 
     def get_roi_feature_pos(self, roi_idx):
         """give the idx of the roi, output the [layer, w, h] of roi"""
