@@ -189,9 +189,12 @@ class ResNet(object):
         top_confidences, top_inds = tf.nn.top_k(all_confidences, 1)
         # top_confidences shape [batch_size, layers_num * wh * num_priors]
         top_confidences = tf.reshape(top_confidences, (batch_size, -1))
+        # [batch_size, k(100)] the top k scores and indices
         top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
-        top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
-        print(top_k_arrs[0])
+        top_k_layers = tf.map_fn(self.roi_bounds.get_roi_feature_pos,
+                                 top_k_confidences, 'layer')
+        # top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
+
         # top_k_inds_perbatch = []
         # # for each batch
         # for i in range(batch_size):
@@ -202,8 +205,6 @@ class ResNet(object):
         #     self.roi_bounds.get_from_arrs(top_indices, top_values)
         #     top_k_inds_perbatch.append(top_indices)
 
-        self.top_k_inds = top_k_inds_perbatch # tf.concat(top_k_inds_perbatch, 1)
-        print(self.top_k_inds[0])
         self.outputs['location'] = all_locations
         self.outputs['confidence'] = all_confidences
         return all_confidences, all_locations
@@ -302,7 +303,8 @@ class roi_bounds(object):
             roi_bound_i = self.roi_bound[-1] + fm_size ** 2 * num_prior
             self.roi_bound.append(roi_bound_i)
 
-    def get_roi_feature_pos(self, roi_idx):
+    @filte_output
+    def get_roi_feature_pos(self, roi_idx, select='layer'):
         """give the idx of the roi, output the [layer, w, h] of roi"""
         roi_bound = self.roi_bound
         for i in range(len(roi_bound)-1):
@@ -313,7 +315,7 @@ class roi_bounds(object):
                 w = rel_roi_idx // self.fm_sizes[i]
                 h = rel_roi_idx % self.fm_sizes[i]
 
-        return np.array([layer_num, w, h])
+        return tf.constant([layer_num]), w, h, select
 
     def get_from_arrs(self, roi_idxs, top_values):
         with tf.Session() as sess:
@@ -324,6 +326,13 @@ class roi_bounds(object):
         roi_arr = np.concatenate([roi_arr, top_values_arr.reshape(-1, 1)], axis=1)
         return roi_arr
 
+    def filte_output(layer_num, w, h, select='layer'):
+        if select == 'layer':
+            return layer_num
+        if select == 'w':
+            return w
+        if select == 'h':
+            return h
 
 class BatchNorm(KL.BatchNormalization):
     """Extends the Keras BatchNormalization class to allow a central place
