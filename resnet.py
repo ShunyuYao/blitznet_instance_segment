@@ -176,26 +176,31 @@ class ResNet(object):
                         conf = slim.conv2d(src_layer, num_priors * num_classes,
                                            [args.det_kernel, args.det_kernel],
                                            scope='confidence'+scope_suffix)
-                        conf_sh = tf.stack([batch_size, wh * num_priors, num_classes])
+                            conf_sh = tf.stack([batch_size, wh * num_priors, num_classes])
                         confidences.append(tf.reshape(conf, conf_sh))
                         tf.summary.histogram("confidence/"+layer_name, confidences[-1])
 
                     ssd_end_points = slim.utils.convert_collection_to_dict(end_points_collection)
                     self.outputs.update(ssd_end_points)
-        all_confidences = tf.concat(confidences, 1)
+        all_confidences = tf.concat(confidences, 1)  # [layer_num, batch_size, wh * num_priors, num_classes]
         all_locations = tf.concat(locations, 1)
         k = args.top_k_confidences
-        # 统计最后一个维度 [layer_num, batch_size, wh * num_priors]
-        biggest_confidence, _ = tf.nn.top_k(all_confidences, 1)
-        top_k_inds_perbatch = []
-        # for each batch
-        for i in range(batch_size):
-            confidence_i = biggest_confidence[:, i]
-            layer_num, wh_mul_numPriors = tf.shape(confidence_i)
-            # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
-            top_values, top_indices = tf.nn.top_k(tf.reshape(confidence_i, (-1,)), k)
-            self.roi_bounds.get_from_arrs(top_indices, top_values)
-            top_k_inds_perbatch.append(top_indices)
+        # top_confidences shape [layer_num, batch_size, wh * num_priors]
+        top_confidences, top_inds = tf.nn.top_k(all_confidences, 1)
+        # top_confidences shape [batch_size, layers_num * wh * num_priors]
+        top_confidences = tf.reshape(top_confidences, (batch_size, -1))
+        top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
+        top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
+        print(top_k_arrs[0])
+        # top_k_inds_perbatch = []
+        # # for each batch
+        # for i in range(batch_size):
+        #     confidence_i = biggest_confidence[:, i]
+        #     layer_num, wh_mul_numPriors = tf.shape(confidence_i)
+        #     # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
+        #     top_values, top_indices = tf.nn.top_k(tf.reshape(confidence_i, (-1,)), k)
+        #     self.roi_bounds.get_from_arrs(top_indices, top_values)
+        #     top_k_inds_perbatch.append(top_indices)
 
         self.top_k_inds = top_k_inds_perbatch # tf.concat(top_k_inds_perbatch, 1)
         print(self.top_k_inds[0])
