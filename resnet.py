@@ -192,7 +192,7 @@ class ResNet(object):
         # [batch_size, k(100)] the top k scores and indices
         top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
         top_k_layers = tf.map_fn(self.roi_bounds.get_roi_feature_pos,
-                                 top_k_confidences, 'layer')
+                                 top_k_confidences)
         # top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
 
         # top_k_inds_perbatch = []
@@ -303,7 +303,6 @@ class roi_bounds(object):
             roi_bound_i = self.roi_bound[-1] + fm_size ** 2 * num_prior
             self.roi_bound.append(roi_bound_i)
 
-    @filte_output
     def get_roi_feature_pos(self, roi_idx, select='layer'):
         """give the idx of the roi, output the [layer, w, h] of roi"""
         roi_bound = self.roi_bound
@@ -315,7 +314,7 @@ class roi_bounds(object):
                 w = rel_roi_idx // self.fm_sizes[i]
                 h = rel_roi_idx % self.fm_sizes[i]
 
-        return tf.constant([layer_num]), w, h, select
+        return filte_output(tf.constant([layer_num]), w, h, select)
 
     def get_from_arrs(self, roi_idxs, top_values):
         with tf.Session() as sess:
