@@ -13,6 +13,7 @@ from config import args, MEAN_COLOR
 from paths import INIT_WEIGHTS_DIR
 import numpy as np
 import keras.layers as KL
+import keras.engine as KE
 
 log = logging.getLogger()
 slim = tf.contrib.slim
@@ -191,8 +192,22 @@ class ResNet(object):
         top_confidences = tf.reshape(top_confidences, (batch_size, -1))
         # [batch_size, k(100)] the top k scores and indices
         top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
-        top_k_layers = tf.map_fn(self.roi_bounds.get_roi_feature_pos,
-                                 top_k_confidences)
+        # need to eliminate all aspect_ratios (all the aspects num are 6)
+        top_k_confidences = top_confidences // 6
+        top_k_inds = top_k_inds // 6
+        top_k_confidences = tf.reshape(top_k_confidences, (-1,))
+        top_k_inds = tf.reshape(top_k_inds, (-1,))
+
+        # eliminate same aspect_ratio
+        top_k_inds, idx = tf.unique(top_k_inds)
+        top_k_confidences = tf.gather(top_k_confidences, idx)
+
+        roi_info = self.roi_bounds.cal_roi_info()
+        # shape [batch*num_rois (layer y1 x1 y2 x2)]
+        top_k_rois = tf.gather(roi_info, top_k_inds)
+        top_k_rois = tf.reshape(top_k_rois,
+                                  (batch_size, -1, tf.shape(top_k_rois)[1:]))
+        self.top_k_rois = top_k_rois
         # top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
 
         # top_k_inds_perbatch = []
@@ -230,7 +245,7 @@ class ResNet(object):
                 self.outputs['segmentation'] = seg_logits
                 return self.outputs['segmentation']
 
-    def create_instance_head(self, num_classes, ROIs, train_bn=True):
+    def create_instance_head(self, num_classes, rois, train_bn=True):
         """
         instance segmentation mask head
         Params
@@ -238,10 +253,9 @@ class ResNet(object):
         so it needs a preprocess first.
         """
         with tf.variable_scope(DEFAULT_SSD_SCOPE) as sc:
-            seg_materials = []
-            seg_size = self.config['fm_sizes'][0]
-            x = PyramidROIAlign([pool_size, pool_size],
-                                name="roi_align_mask")([rois, image_meta] + feature_maps)
+            feature_maps = self.outputs[self.layers]
+            x = PyramidROIExtract([arg.det_kernel, arg.det_kernel],
+                                  name="roi_align_mask")([rois, feature_maps])
 
             x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
                                    name="instance_mask_deconv1")(x)
@@ -333,6 +347,25 @@ class roi_bounds(object):
         if select == 'h':
             return h
 
+    def cal_roi_info(self):
+        roi_info = []
+        # roi in shape [layer_num, y1, x1, y2, x2] normalized
+        # (needs to take the aspect_ratios into account)
+        for layer_num, fm_size in enumerate(self.fm_sizes):
+            # num_prior = len(self.config['aspect_ratios'][layer_num])*2 + 2
+            for w in range(fm_size):
+                for h in range(fm_size):
+                    radius = args.det_kernel // 2
+                    y1 = (h - radius) / fm_size
+                    x1 = (w - radius) / fm_size
+                    y2 = (h + radius) / fm_size
+                    x2 = (w + radius) / fm_size
+                    roi_per_prior = [[layer_num, y1, x1, y2, x2]]  # * num_prior
+                    roi_info.extend(roi_per_prior)
+
+        self.roi_info = tf.stack(roi_info, 0)
+        return self.roi_info
+
 class BatchNorm(KL.BatchNormalization):
     """Extends the Keras BatchNormalization class to allow a central place
     to make changes if needed.
@@ -349,3 +382,56 @@ class BatchNorm(KL.BatchNormalization):
             True: (don't use). Set layer in training mode even when making inferences
         """
         return super(self.__class__, self).call(inputs, training=training)
+
+
+class PyramidROIExtract(KE.layer):
+    """Implements ROI extracting on multiple layers of the SSD
+
+    Params:
+    - output shape: [output_h, output_w] of the extracted regions. defalut [3, 3]
+
+    Inputs:
+    - feature pos: [batch, num_rois, (layer_num, y1, x1, y2, x2)]
+    - feature maps: the list of all SSD rev feature maps
+
+    Output:
+    extracted regions in the shape: [batch, num_rois, output_h, output_w, channels]
+    """
+
+    def __init__(self, roi_shape, config, **kwargs):
+        super(PyramidROIExtract, self).__init__(**kwargs)
+        self.output_shape = tuple(roi_shape)
+        self.num_rois = args.top_k_confidences
+
+    def call(self, inputs):
+        roi_pos = inputs[0]
+        feature_maps = inputs[1]
+
+        layer_num, y1, x1, y2, x2 = tf.split(roi_pos, 5, axis=2)
+        h = y2 - y1
+        w = x2 - x1
+
+        rois = []
+        roi_to_level = []
+        for i, level in enumerate(range(7)):
+            ix = tf.where(tf.equal(layer_num, level))
+            level_rois = tf.gather_nd(roi_pos, ix)
+
+            # Box indices for crop_and_resize.
+            roi_indices = tf.cast(ix[:, 0], tf.int32)
+
+            # Keep track of which box is mapped to which level
+            roi_to_level.append(ix)
+
+            # Stop gradient propogation to ROI proposals
+            level_rois = tf.stop_gradient(level_rois)
+            roi_indices = tf.stop_gradient(roi_indices)
+            # Result: [batch * num_rois, output_h, output_w, channels]
+            rois.append(tf.image.crop_and_resize(
+                feature_maps[i], level_rois, roi_indices, self.output_shape,
+                method="bilinear"))
+
+        rois = tf.stack(rois)
+        rois = tf.reshape(rois, (-1, self.num_rois, tf.shape(rois)[1:]))
+
+        return rois
