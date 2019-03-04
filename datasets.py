@@ -112,9 +112,9 @@ def get_dataset(*files):
             dtype=tf.int64),
         'image/object/difficulty': tf.VarLenFeature(
             dtype=tf.int64),
-        'images/height': tf.VarLenFeature(
+        'image/height': tf.VarLenFeature(
             dtype=tf.int64),
-        'images/width': tf.VarLenFeature(
+        'image/width': tf.VarLenFeature(
             dtype=tf.int64),
         'image/instances': tf.VarLenFeature(
             dtype=tf.int64),
