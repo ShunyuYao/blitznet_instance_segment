@@ -279,10 +279,10 @@ class ResNet(object):
                 feature_maps.append(self.outputs[self.layers[i]])
             x = PyramidROIExtract([args.det_kernel, args.det_kernel],
                                   self.config,
-                                  name="roi_align_mask")([rois] + feature_maps)
+                                  name="roi_align_mask")([rois].extend(feature_maps))
 
-            # x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
-            #                        name="instance_mask_deconv1")(x)
+            x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                                   name="instance_mask_deconv1")(x)
             # Conv layers
             x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                                    name="instance_mask_conv1")(x)
