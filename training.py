@@ -144,9 +144,9 @@ def extract_batch(dataset, config):
             im, bbox, gt, seg, num_seg, im_h, im_w = \
                 data_provider.get(['image', 'object/bbox', 'object/label',
                                    'image/instances',
-                                   'images/num_instances',
-                                   'images/height',
-                                   'images/width'])
+                                   'image/num_instances',
+                                   'image/height',
+                                   'image/width'])
             print(seg.shape)
             # tf.reshape(seg, (num_seg, h, w))
 
