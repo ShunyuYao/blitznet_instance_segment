@@ -22,14 +22,14 @@ def normalize_bboxes(bboxes, w, h):
 
 def _int64_feature(value):
     """Wrapper for inserting int64 features into Example proto."""
-    if not isinstance(value, list):
+    if not isinstance(value, list) and not isinstance(value, np.ndarray):
         value = [value]
     return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
 
 
 def _float64_feature(value):
     """Wrapper for inserting float64 features into Example proto."""
-    if not isinstance(value, list):
+    if not isinstance(value, list) and not isinstance(value, np.ndarray):
         value = [value]
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
@@ -65,7 +65,7 @@ def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty,
         'image/encoded': _bytes_feature(tf.compat.as_bytes(image_buffer)),
         'image/segmentation/format': _bytes_feature(tf.compat.as_bytes(segmentation_format)),
         'image/segmentation/encoded': _bytes_feature(tf.compat.as_bytes(segmentation)),
-        'image/instance': _bytes_feature(tf.compat.as_bytes(instances))
+        'image/instance': _int64_feature(instances)
     }))
     return example
 
@@ -184,7 +184,7 @@ def create_coco_dataset(split):
 
                 segmentation = np.zeros((h, w), dtype=np.uint8)
                 coco_anns = loader._get_coco_annotations(f, only_instances=False)
-                instances = []
+                instances = np.zeros([1, h, w], dtype=np.uint8)
                 for ann in coco_anns:
                     mask = loader._read_segmentation(ann, h, w)
                     cid = loader.coco_ids_to_internal[ann['category_id']]
@@ -193,7 +193,8 @@ def create_coco_dataset(split):
 
                     instance = np.zeros((h, w), dtype=np.uint8)
                     instance[mask > 0] = cid
-                    instances.append(instance)
+                    instances = np.concatenate([instances,
+                                                np.expand_dims(instance, 0)], axis=0)
 
                 png_string = sess.run(encoded_image,
                                       feed_dict={image_placeholder: segmentation})
