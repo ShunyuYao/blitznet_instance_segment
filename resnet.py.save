@@ -1,3 +1,4 @@
+407
 import logging
 import os
 
@@ -258,7 +259,7 @@ class ResNet(object):
             for i in range(len(self.layers)):
             	feature_maps.append(self.outputs[self.layers[i]])
             x = PyramidROIExtract([3, 3],  # [args.det_kernel, args.det_kernel],
-                                  name="roi_align_mask")([rois] + feature_maps)
+                                  name="roi_align_mask")([rois, feature_maps])
 
             x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
                                    name="instance_mask_deconv1")(x)
@@ -403,26 +404,23 @@ class PyramidROIExtract(KE.Layer):
 
     def __init__(self, roi_shape, **kwargs):
         super(PyramidROIExtract, self).__init__(**kwargs)
-        self.roi_shape = tuple(roi_shape)
+        print(roi_shape)
+        self.output_shape = tuple(roi_shape)
         self.num_rois = args.top_k_confidences
 
     def call(self, inputs):
         roi_pos = inputs[0]
-        feature_maps = inputs[1:]
+        feature_maps = inputs[1]
 
         layer_num, y1, x1, y2, x2 = tf.split(roi_pos, 5, axis=2)
         h = y2 - y1
         w = x2 - x1
-        roi_pos = roi_pos[:, :, 1:]
-        print("aft roi_pos shape: ", roi_pos.shape)
 
         rois = []
         roi_to_level = []
-        layer_num = tf.squeeze(layer_num, 2)
         for i, level in enumerate(range(7)):
             ix = tf.where(tf.equal(layer_num, level))
             level_rois = tf.gather_nd(roi_pos, ix)
-            print("level rois shape: ", level_rois.shape)
 
             # Box indices for crop_and_resize.
             roi_indices = tf.cast(ix[:, 0], tf.int32)
@@ -433,16 +431,12 @@ class PyramidROIExtract(KE.Layer):
             # Stop gradient propogation to ROI proposals
             level_rois = tf.stop_gradient(level_rois)
             roi_indices = tf.stop_gradient(roi_indices)
-            # Result: [layer, batch * num_rois, output_h, output_w, channels]
+            # Result: [batch * num_rois, output_h, output_w, channels]
             rois.append(tf.image.crop_and_resize(
-                feature_maps[i], level_rois, roi_indices, self.roi_shape,
+                feature_maps[i], level_rois, roi_indices, self.output_shape,
                 method="bilinear"))
 
         rois = tf.stack(rois)
-        print(rois.shape)
-        print(roi_pos.shape)
-        rois_shape = tf.concat([tf.shape(roi_pos)[:2], tf.shape(rois)[1:]], axis=0)
-        rois = tf.reshape(rois, rois_shape)
-        print(rois.shape)
+        rois = tf.reshape(rois, (-1, self.num_rois, tf.shape(rois)[1:]))
 
         return rois

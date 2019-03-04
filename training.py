@@ -178,7 +178,7 @@ def train(dataset, net, config):
         seg_logits = None
 
     if args.instance:
-        rois = net.top_k_layers
+        rois = net.top_k_rois
         instance_output = net.create_instance_head(dataset.num_classes, rois)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
