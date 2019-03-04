@@ -256,8 +256,9 @@ class ResNet(object):
         with tf.variable_scope(DEFAULT_SSD_SCOPE) as sc:
             feature_maps = []
             for i in range(len(self.layers)):
-            	feature_maps.append(self.outputs[self.layers[i]])
-            x = PyramidROIExtract([3, 3],  # [args.det_kernel, args.det_kernel],
+                feature_maps.append(self.outputs[self.layers[i]])
+            x = PyramidROIExtract([args.det_kernel, args.det_kernel],
+                                  self.config,
                                   name="roi_align_mask")([rois] + feature_maps)
 
             x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
@@ -401,10 +402,12 @@ class PyramidROIExtract(KE.Layer):
     extracted regions in the shape: [batch, num_rois, output_h, output_w, channels]
     """
 
-    def __init__(self, roi_shape, **kwargs):
+    def __init__(self, roi_shape, config, **kwargs):
         super(PyramidROIExtract, self).__init__(**kwargs)
         self.roi_shape = tuple(roi_shape)
         self.num_rois = args.top_k_confidences
+        self.config = config
+        self.roi_layer_num = len(self.config['fm_sizes'])
 
     def call(self, inputs):
         roi_pos = inputs[0]
@@ -419,7 +422,7 @@ class PyramidROIExtract(KE.Layer):
         rois = []
         roi_to_level = []
         layer_num = tf.squeeze(layer_num, 2)
-        for i, level in enumerate(range(7)):
+        for i, level in enumerate(range(self.roi_layer_num)):
             ix = tf.where(tf.equal(layer_num, level))
             level_rois = tf.gather_nd(roi_pos, ix)
             print("level rois shape: ", level_rois.shape)
@@ -441,7 +444,9 @@ class PyramidROIExtract(KE.Layer):
         rois = tf.stack(rois)
         print(rois.shape)
         print(roi_pos.shape)
-        rois_shape = tf.concat([tf.shape(roi_pos)[:2], tf.shape(rois)[1:]], axis=0)
+        rois_shape = tf.concat([tf.shape(roi_pos)[:1],  # batch
+                                tf.reshape(tf.constant(-1), (-1,)),  # -1
+                                tf.shape(rois)[2:]], axis=0)  # output_h, output_w, channels
         rois = tf.reshape(rois, rois_shape)
         print(rois.shape)
 
