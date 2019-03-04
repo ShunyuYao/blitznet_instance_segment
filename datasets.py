@@ -40,7 +40,7 @@ def _bytes_feature(value):
 
 
 def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty,
-                        segmentation, instances, height, width):
+                        segmentation, instances, height, width, num_instances):
     xmin = bboxes[:, 0].tolist()
     ymin = bboxes[:, 1].tolist()
     xmax = (bboxes[:, 2] + bboxes[:, 0]).tolist()
@@ -65,7 +65,8 @@ def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty,
         'image/encoded': _bytes_feature(tf.compat.as_bytes(image_buffer)),
         'image/segmentation/format': _bytes_feature(tf.compat.as_bytes(segmentation_format)),
         'image/segmentation/encoded': _bytes_feature(tf.compat.as_bytes(segmentation)),
-        'image/instance': _int64_feature(instances)
+        'image/instance': _int64_feature(instances),
+        'image/num_instances': _int64_feature(num_instances)
     }))
     return example
 
@@ -195,11 +196,13 @@ def create_coco_dataset(split):
                     instance[mask > 0] = cid
                     instances = np.concatenate([instances,
                                                 np.expand_dims(instance, 0)], axis=0)
+                num_instances = instances.shape[0]
+                instances = instances.reshape(-1)
 
                 png_string = sess.run(encoded_image,
                                       feed_dict={image_placeholder: segmentation})
                 example = _convert_to_example(path, image_data, gt_bb, gt_cats, diff, png_string,
-                                              instances, h, w)
+                                              instances, h, w, num_instances)
                 if i % 100 == 0:
                     print("%i files are processed" % i)
                 writer.write(example.SerializeToString())
