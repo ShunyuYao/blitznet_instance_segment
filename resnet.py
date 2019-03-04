@@ -191,20 +191,20 @@ class ResNet(object):
         # top_confidences shape [batch_size, layers_num * wh * num_priors]
         top_confidences = tf.reshape(top_confidences, (batch_size, -1))
         # [batch_size, k(100)] the top k scores and indices
-        top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k*20)
+        top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
         # need to eliminate all aspect_ratios (all the aspects num are 6)
         top_k_confidences = top_confidences // 6
         top_k_inds = top_k_inds // 6
-        top_k_confidences = tf.reshape(top_k_confidences, (-1,))
-        top_k_inds = tf.reshape(top_k_inds, (-1,))
+        # top_k_confidences = tf.reshape(top_k_confidences, (-1,))
+        # top_k_inds = tf.reshape(top_k_inds, (-1,))
 
         # eliminate same aspect_ratio
-        top_k_inds, idx = tf.unique(top_k_inds)
-        top_k_confidences = tf.gather(top_k_confidences, idx)
+        # top_k_inds, idx = tf.unique(top_k_inds)
+        # top_k_confidences = tf.gather(top_k_confidences, idx)
 
-        top_k_inds = tf.reshape(top_k_inds, (batch_size, -1))
-        top_k_inds, _ = tf.nn.top_k(top_k_inds, k)
-        top_k_inds = tf.reshape(top_k_inds, (-1,))
+        # top_k_inds = tf.reshape(top_k_inds, (batch_size, -1))
+        # top_k_inds, _ = tf.nn.top_k(top_k_inds, k)
+        # top_k_inds = tf.reshape(top_k_inds, (-1,))
 
         roi_info = self.roi_bounds.cal_roi_info()
         # shape [batch*num_rois (layer y1 x1 y2 x2)]
