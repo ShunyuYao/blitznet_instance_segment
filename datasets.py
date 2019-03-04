@@ -100,8 +100,6 @@ def get_dataset(*files):
             (), tf.string, default_value=''),
         'image/segmentation/format': tf.FixedLenFeature(
             (), tf.string, default_value='RAW'),
-        'image/instances': tf.FixedLenFeature(
-            (), tf.string, default_value=''),
         'image/object/bbox/xmin': tf.VarLenFeature(
             dtype=tf.float32),
         'image/object/bbox/ymin': tf.VarLenFeature(
@@ -114,12 +112,21 @@ def get_dataset(*files):
             dtype=tf.int64),
         'image/object/difficulty': tf.VarLenFeature(
             dtype=tf.int64),
+        'images/height': tf.VarLenFeature(
+            dtype=tf.int64),
+        'images/width': tf.VarLenFeature(
+            dtype=tf.int64),
+        'image/instances': tf.VarLenFeature(
+            dtype=tf.int64),
     }
 
     items_to_handlers = {
         'image': slim.tfexample_decoder.Image('image/encoded', 'image/format', channels=3),
         'image/segmentation': slim.tfexample_decoder.Image('image/segmentation/encoded', 'image/segmentation/format', channels=1),
         'image/instances': slim.tfexample_decoder.Tensor('image/instances'),
+        'image/num_instances': slim.tfexample_decoder.Tensor('image/num_instances'),
+        'image/height': slim.tfexample_decoder.Tensor('image/height'),
+        'image/width': slim.tfexample_decoder.Tensor('image/width'),
         'object/bbox': slim.tfexample_decoder.BoundingBox(
             ['ymin', 'xmin', 'ymax', 'xmax'], 'image/object/bbox/'),
         'object/label': slim.tfexample_decoder.Tensor('image/object/class/label'),
@@ -129,6 +136,8 @@ def get_dataset(*files):
     items_to_descriptions = {
         'image': 'A color image of varying height and width.',
         'image/segmentation': 'A semantic segmentation.',
+        'image/instances': 'A 1-d array of instance segmentations.',
+        'image/num_instances': 'Num of instances in one image to restruct instances.',
         'object/bbox': 'A list of bounding boxes.',
         'object/label': 'A list of labels, one per each object.',
         'object/difficulty': 'A list of binary difficulty flags, one per each object.',
@@ -152,7 +161,8 @@ def get_dataset(*files):
         num_classes=len(categories),
         labels_to_names={i: cat for i, cat in enumerate(categories)})
 
-
+# TODO: currently use 1-D array TFRecord to store instance segmentation
+# and this occupy HUGE disk space
 def create_coco_dataset(split):
     loader = COCOLoader(split)
     sz = len(loader.get_filenames())

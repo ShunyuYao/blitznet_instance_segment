@@ -140,7 +140,17 @@ def extract_batch(dataset, config):
         data_provider = slim.dataset_data_provider.DatasetDataProvider(
             dataset, num_readers=2,
             common_queue_capacity=512, common_queue_min=32)
-        if args.segment:
+        if args.instance:
+            im, bbox, gt, seg, num_seg, im_h, im_w = \
+                data_provider.get(['image', 'object/bbox', 'object/label',
+                                   'image/instances',
+                                   'images/num_instances',
+                                   'images/height',
+                                   'images/width'])
+            print(seg.shape)
+            # tf.reshape(seg, (num_seg, h, w))
+
+        elif args.segment:
             im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
                                                    'image/segmentation'])
         else:
