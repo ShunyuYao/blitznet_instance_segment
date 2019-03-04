@@ -301,6 +301,8 @@ class ResNet(object):
                                    name='instance_mask_bn2')(x, training=train_bn)
             x = KL.Activation('relu')(x)
 
+            x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                                   name="instance_mask_deconv2")(x)
             x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                                    name="instance_mask_conv3")(x)
             x = KL.TimeDistributed(BatchNorm(),
