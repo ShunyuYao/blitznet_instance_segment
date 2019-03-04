@@ -209,10 +209,8 @@ class ResNet(object):
         roi_info = self.roi_bounds.cal_roi_info()
         # shape [batch*num_rois (layer y1 x1 y2 x2)]
         top_k_rois = tf.gather(roi_info, top_k_inds)
-        print('top k rois shape: ', top_k_rois.shape)
         top_k_rois = tf.reshape(top_k_rois,
-                               (batch_size, k, 5)) # tf.shape(top_k_rois)[1:]))
-        print('top k rois shape: ', top_k_rois.shape)
+                                (batch_size, k, 5))  # tf.shape(top_k_rois)[1:]))
         self.top_k_rois = top_k_rois
         # top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
 
@@ -247,7 +245,7 @@ class ResNet(object):
                     seg_materials.append(seg)
                 seg_materials = tf.concat(seg_materials, -1)
                 seg_logits = slim.conv2d(seg_materials, num_classes,
-                                        kernel_size=3, activation_fn=None)
+                                         kernel_size=3, activation_fn=None)
                 self.outputs['segmentation'] = seg_logits
                 return self.outputs['segmentation']
 

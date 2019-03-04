@@ -39,7 +39,8 @@ def _bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 
-def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty, segmentation, height, width):
+def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty,
+                        segmentation, instances, height, width):
     xmin = bboxes[:, 0].tolist()
     ymin = bboxes[:, 1].tolist()
     xmax = (bboxes[:, 2] + bboxes[:, 0]).tolist()
@@ -64,6 +65,7 @@ def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty, segmen
         'image/encoded': _bytes_feature(tf.compat.as_bytes(image_buffer)),
         'image/segmentation/format': _bytes_feature(tf.compat.as_bytes(segmentation_format)),
         'image/segmentation/encoded': _bytes_feature(tf.compat.as_bytes(segmentation)),
+        'image/instance': _bytes_feature(tf.compat.as_bytes(instances))
     }))
     return example
 
@@ -97,6 +99,8 @@ def get_dataset(*files):
             (), tf.string, default_value=''),
         'image/segmentation/format': tf.FixedLenFeature(
             (), tf.string, default_value='RAW'),
+        'image/instances': tf.FixedLenFeature(
+            (), tf.string, default_value=''),
         'image/object/bbox/xmin': tf.VarLenFeature(
             dtype=tf.float32),
         'image/object/bbox/ymin': tf.VarLenFeature(
@@ -114,6 +118,7 @@ def get_dataset(*files):
     items_to_handlers = {
         'image': slim.tfexample_decoder.Image('image/encoded', 'image/format', channels=3),
         'image/segmentation': slim.tfexample_decoder.Image('image/segmentation/encoded', 'image/segmentation/format', channels=1),
+        'image/instances': slim.tfexample_decoder.Tensor('image/instances'),
         'object/bbox': slim.tfexample_decoder.BoundingBox(
             ['ymin', 'xmin', 'ymax', 'xmax'], 'image/object/bbox/'),
         'object/label': slim.tfexample_decoder.Tensor('image/object/class/label'),
@@ -179,15 +184,21 @@ def create_coco_dataset(split):
 
                 segmentation = np.zeros((h, w), dtype=np.uint8)
                 coco_anns = loader._get_coco_annotations(f, only_instances=False)
+                instances = []
                 for ann in coco_anns:
                     mask = loader._read_segmentation(ann, h, w)
                     cid = loader.coco_ids_to_internal[ann['category_id']]
                     assert mask.shape == segmentation.shape
                     segmentation[mask > 0] = cid
 
+                    instance = np.zeros((h, w), dtype=np.uint8)
+                    instance[mask > 0] = cid
+                    instances.append(instance)
+
                 png_string = sess.run(encoded_image,
                                       feed_dict={image_placeholder: segmentation})
-                example = _convert_to_example(path, image_data, gt_bb, gt_cats, diff, png_string, h, w)
+                example = _convert_to_example(path, image_data, gt_bb, gt_cats, diff, png_string,
+                                              instances, h, w)
                 if i % 100 == 0:
                     print("%i files are processed" % i)
                 writer.write(example.SerializeToString())
