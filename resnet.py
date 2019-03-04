@@ -265,13 +265,18 @@ class ResNet(object):
         x = PyramidROIExtract([args.det_kernel, args.det_kernel],
                                   self.config,
                                   name="roi_align_mask")([rois] + feature_maps)
-        test_x = tf.random_uniform((16, 700, 3, 3, 512))
-        print('test x shape: ', test_x.shape, tf.shape(test_x))
-        print('test x: ', test_x)
-        print('x shape: ', x.shape, tf.shape(x))
-        print('x: ', x)
-        t_x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                                 name="test_mask_conv1")(test_x)
+        # test_x = tf.random_uniform((16, 700, 3, 3, 512))
+        # print('test x shape: ', test_x.shape, tf.shape(test_x))
+        # print('test x: ', test_x)
+        # print('x shape: ', x.shape, tf.shape(x))
+        # print('x: ', x)
+        # t1 = KL.Conv2D(256, (3, 3), padding="same")(x[:, 0, :, :, :])
+        # print(t1)
+        # t2 = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+        #                          name="test_mask_test")(x)
+        # print(t2)
+        # t_x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+        #                          name="test_mask_conv1")(test_x)
 
         with tf.variable_scope(DEFAULT_SSD_SCOPE) as sc:
             feature_maps = []
@@ -279,10 +284,10 @@ class ResNet(object):
                 feature_maps.append(self.outputs[self.layers[i]])
             x = PyramidROIExtract([args.det_kernel, args.det_kernel],
                                   self.config,
-                                  name="roi_align_mask")([rois].extend(feature_maps))
+                                  name="roi_align_mask")([rois] + feature_maps)
 
             x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
-                                   name="instance_mask_deconv1")(x)
+                                   name="instance_mask_deconv1")(x[:, :, :, :, :])
             # Conv layers
             x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                                    name="instance_mask_conv1")(x)
@@ -462,7 +467,7 @@ class PyramidROIExtract(KE.Layer):
         rois = tf.concat(rois, axis=0)
         # print('rois shape:', rois.shape)
         rois_shape = tf.concat([tf.shape(roi_pos)[:1],  # batch
-                                tf.reshape(tf.constant(-1), (1,)),  # -1
+                                tf.reshape(tf.constant(self.num_rois), (1,)),  # -1
                                 tf.shape(rois)[1:]], axis=0)  # output_h, output_w, channels
         rois = tf.reshape(rois, rois_shape)
 
