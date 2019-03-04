@@ -180,6 +180,7 @@ def train(dataset, net, config):
     if args.instance:
         rois = net.top_k_rois
         instance_output = net.create_instance_head(dataset.num_classes, rois)
+        print('instance output shape: ', instance_output.shape)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
                                                            classes_ph,inds_ph, seg_logits,
