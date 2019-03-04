@@ -252,6 +252,19 @@ class ResNet(object):
         ROIs: [batch, num_rois, H, W, C], the C of the initial Rois may not identical
         so it needs a preprocess first.
         """
+        feature_maps = []
+        for i in range(len(self.layers)):
+            feature_maps.append(self.outputs[self.layers[i]])
+
+        x = PyramidROIExtract([args.det_kernel, args.det_kernel],
+                                  self.config,
+                                  name="roi_align_mask")([rois] + feature_maps)
+        test_x = tf.random_uniform((16, 33, 3, 3, 512))
+        print('test x shape: ', test_x.shape, tf.shape(test_x))
+        print('x shape: ', x.shape, tf.shape(x))
+        t_x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                                 name="test_mask_conv1")(test_x)
+
         with tf.variable_scope(DEFAULT_SSD_SCOPE) as sc:
             feature_maps = []
             for i in range(len(self.layers)):
@@ -259,10 +272,9 @@ class ResNet(object):
             x = PyramidROIExtract([args.det_kernel, args.det_kernel],
                                   self.config,
                                   name="roi_align_mask")([rois] + feature_maps)
-            print(x.shape)
 
-            x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
-                                   name="instance_mask_deconv1")(x)
+            # x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+            #                        name="instance_mask_deconv1")(x)
             # Conv layers
             x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                                    name="instance_mask_conv1")(x)
@@ -417,7 +429,6 @@ class PyramidROIExtract(KE.Layer):
         h = y2 - y1
         w = x2 - x1
         roi_pos = roi_pos[:, :, 1:]
-        print("aft roi_pos shape: ", roi_pos.shape)
 
         rois = []
         roi_to_level = []
@@ -425,7 +436,6 @@ class PyramidROIExtract(KE.Layer):
         for i, level in enumerate(range(self.roi_layer_num)):
             ix = tf.where(tf.equal(layer_num, level))
             level_rois = tf.gather_nd(roi_pos, ix)
-            print("level rois shape: ", level_rois.shape)
 
             # Box indices for crop_and_resize.
             roi_indices = tf.cast(ix[:, 0], tf.int32)
