@@ -205,7 +205,6 @@ class ResNet(object):
         roi_info = self.roi_bounds.cal_roi_info()
         # shape [batch*num_rois (layer y1 x1 y2 x2)]
         top_k_rois = tf.gather(roi_info, top_k_inds)
-        print(top_k_rois.shape)
         top_k_rois = tf.reshape(top_k_rois,
                                (batch_size, -1, 5)) # tf.shape(top_k_rois)[1:]))
         self.top_k_rois = top_k_rois
@@ -260,6 +259,7 @@ class ResNet(object):
             x = PyramidROIExtract([args.det_kernel, args.det_kernel],
                                   self.config,
                                   name="roi_align_mask")([rois] + feature_maps)
+            print(x.shape)
 
             x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
                                    name="instance_mask_deconv1")(x)
@@ -442,12 +442,9 @@ class PyramidROIExtract(KE.Layer):
                 method="bilinear"))
 
         rois = tf.stack(rois)
-        print(rois.shape)
-        print(roi_pos.shape)
         rois_shape = tf.concat([tf.shape(roi_pos)[:1],  # batch
                                 tf.reshape(tf.constant(-1), (-1,)),  # -1
                                 tf.shape(rois)[2:]], axis=0)  # output_h, output_w, channels
         rois = tf.reshape(rois, rois_shape)
-        print(rois.shape)
 
         return rois
