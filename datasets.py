@@ -118,6 +118,8 @@ def get_dataset(*files):
             dtype=tf.int64),
         'image/instances': tf.VarLenFeature(
             dtype=tf.int64),
+        'image/num_instances': tf.VarLenFeature(
+            dtype=tf.int64),
     }
 
     items_to_handlers = {
