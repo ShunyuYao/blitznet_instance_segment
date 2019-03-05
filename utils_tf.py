@@ -150,9 +150,8 @@ def filter_small_gt(gt_bboxes, gt_cats, min_size):
     return tf.boolean_mask(gt_bboxes, mask), tf.boolean_mask(gt_cats, mask)
 
 
-def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
+def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, num_ins, config):
     params = config['train_augmentation']
-    num_ins = ins.shape[-1]
     img = apply_with_random_selector(
         img,
         lambda x, ordering: photometric_distortions(x, ordering, params),
@@ -169,6 +168,7 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
     # XXX reference implementation also randomizes interpolation method
     img_size = config['image_size']
     img_out = tf.image.resize_images(img[..., :3], [img_size, img_size])
+    img_out = tf.reshape(img_out, (img_size, img_size, 3))
     gt_bboxes, gt_cats = filter_small_gt(gt_bboxes, gt_cats, 2/config['image_size'])
 
     if seg is not None:
@@ -179,10 +179,14 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
     if ins is not None:
         ins_shape = args.ins_shape
         # add a dim because tf.image.resize needs 4-d tensor
-        ins = tf.expand_dims(img[..., 4:4+num_ins], 0)
+        ins = tf.expand_dims(img[..., 4:], 0)
         # squeeze the first dim after resize
         ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
+        num_ins = tf.cast(num_ins, tf.int32)
+        ins_reshape = tf.concat([tf.constant([ins_shape, ins_shape]), num_ins], axis=0)
+        # ins.set_shape([ins_shape, ins_shape, num_ins])
         ins = tf.cast(tf.round(ins), tf.int64)
+        print("ins shape: ", ins.shape)
     return img_out, gt_bboxes, gt_cats, seg, ins
 
 
