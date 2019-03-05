@@ -140,34 +140,44 @@ def extract_batch(dataset, config):
         data_provider = slim.dataset_data_provider.DatasetDataProvider(
             dataset, num_readers=2,
             common_queue_capacity=512, common_queue_min=32)
-        if args.instance:
-            im, bbox, gt, seg, num_seg, im_h, im_w = \
+        if args.instance and args.segment:
+            im, bbox, gt, seg, ins, num_ins, im_h, im_w = \
+                data_provider.get(['image', 'object/bbox', 'object/label',
+                                   'image/segmentation',
+                                   'image/instances',
+                                   'image/num_instances',
+                                   'image/height',
+                                   'image/width'])
+            ins = tf.reshape(ins, (h, w, num_seg))
+
+        elif args.segment:
+            im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
+                                                   'image/segmentation'])
+        elif args.instance:
+            im, bbox, gt, ins, num_ins, im_h, im_w = \
                 data_provider.get(['image', 'object/bbox', 'object/label',
                                    'image/instances',
                                    'image/num_instances',
                                    'image/height',
                                    'image/width'])
-            print(seg.shape)
-            # tf.reshape(seg, (num_seg, h, w))
+            ins = tf.reshape(ins, (h, w, num_seg))
 
-        elif args.segment:
-            im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
-                                                   'image/segmentation'])
         else:
             im, bbox, gt = data_provider.get(['image', 'object/bbox', 'object/label'])
             seg = tf.expand_dims(tf.zeros(tf.shape(im)[:2]), 2)
+            ins = tf.expand_dims(tf.zeros(tf.shape(im)[:2]), 2)
         im = tf.to_float(im)/255
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
 
-        im, bbox, gt, seg = data_augmentation(im, bbox, gt, seg, config)
+        im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine = bboxer.encode_gt_tf(bbox, gt)
 
-        return tf.train.shuffle_batch([im, inds, refine, cats, seg],
+        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins],
                                       args.batch_size, 2048, 64, num_threads=4)
 
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, seg_gt = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins_gt = extract_batch(dataset, config)
 
     net.create_trunk(image_ph)
 
@@ -190,7 +200,7 @@ def train(dataset, net, config):
     if args.instance:
         rois = net.top_k_rois
         instance_output = net.create_instance_head(dataset.num_classes, rois)
-        print('instance output shape: ', instance_output.shape)
+        print("instance output shape: ", instance_output.shape)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
                                                            classes_ph,inds_ph, seg_logits,

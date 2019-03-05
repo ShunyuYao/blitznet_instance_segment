@@ -138,6 +138,7 @@ parser.add_argument("--timeline", default=False, action='store_true')
 parser.add_argument("--instance", default=False, action='store_true')
 # the number of rois for instance segmentation
 parser.add_argument("--top_k_confidences", default=100)
+parser.add_argument("--ins_shape", default=24, type=int)
 
 args = parser.parse_args()
 train_dir = os.path.join(CKPT_ROOT, args.run_name)

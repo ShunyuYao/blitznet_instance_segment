@@ -150,7 +150,7 @@ def filter_small_gt(gt_bboxes, gt_cats, min_size):
     return tf.boolean_mask(gt_bboxes, mask), tf.boolean_mask(gt_cats, mask)
 
 
-def data_augmentation(img, gt_bboxes, gt_cats, seg, config):
+def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
     params = config['train_augmentation']
     img = apply_with_random_selector(
         img,
@@ -159,6 +159,8 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, config):
 
     if seg is not None:
         img = tf.concat([img, tf.cast(seg, tf.float32)], axis=-1)
+    if ins is not None:
+        img = tf.concat([img, tf.cast(ins, tf.float32)], axis=-1)
 
     img, gt_bboxes, gt_cats = scale_distortions(img, gt_bboxes, gt_cats,
                                                 params)
@@ -173,7 +175,14 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, config):
         seg = tf.expand_dims(tf.expand_dims(img[..., 3], 0), -1)
         seg = tf.squeeze(tf.image.resize_nearest_neighbor(seg, [seg_shape, seg_shape]))
         seg = tf.cast(tf.round(seg), tf.int64)
-    return img_out, gt_bboxes, gt_cats, seg
+    if ins is not None:
+        ins_shape = args.ins_shape
+        # add a dim because tf.image.resize needs 4-d tensor
+        ins = tf.expand_dims(img[..., 4:], 0)
+        # squeeze the first dim after resize
+        ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
+        ins = tf.cast(tf.round(ins), tf.int64)
+    return img_out, gt_bboxes, gt_cats, seg, ins
 
 
 def batch_iou_tf(proposals, gt):
@@ -238,4 +247,3 @@ def apply_with_random_selector(x, func, num_cases):
     return control_flow_ops.merge([
         func(control_flow_ops.switch(x, tf.equal(sel, case))[1], case)
         for case in range(num_cases)])[0]
-
