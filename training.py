@@ -148,6 +148,7 @@ def extract_batch(dataset, config):
                                    'image/num_instances',
                                    'image/height',
                                    'image/width'])
+            print("ins: ", ins)
             ins_shape = tf.stack([im_h, im_w, num_ins], axis=0)
             ins = tf.reshape(ins, ins_shape)
 
