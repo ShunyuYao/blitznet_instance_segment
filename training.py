@@ -149,6 +149,9 @@ def extract_batch(dataset, config):
                                    'image/height',
                                    'image/width'])
             print("ins: ", ins)
+            print("bbox: ", bbox)
+            print("gt: ", gt)
+            num_ins_test = tf.reshape(num_ins, (-1,))
             ins_shape = tf.stack([im_h, im_w, num_ins], axis=0)
             ins = tf.reshape(ins, ins_shape)
 
@@ -173,12 +176,12 @@ def extract_batch(dataset, config):
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, num_ins, config)
         inds, cats, refine = bboxer.encode_gt_tf(bbox, gt)
-        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins],
+        return tf.train.shuffle_batch([im, inds, refine, cats, seg, num_ins_test, ins],
                                       args.batch_size, 2048, 64, num_threads=4)
 
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, num_ins, ins = extract_batch(dataset, config)
 
     net.create_trunk(image_ph)
 
