@@ -144,11 +144,11 @@ def extract_batch(dataset, config):
             im, bbox, gt, seg, ins, num_ins, im_h, im_w = \
                 data_provider.get(['image', 'object/bbox', 'object/label',
                                    'image/segmentation',
-                                   'image/instances',
+                                   'image/instance',
                                    'image/num_instances',
                                    'image/height',
                                    'image/width'])
-            ins_shape = tf.concat([im_h, im_w, num_ins], axis=0)
+            ins_shape = tf.stack([im_h, im_w, num_ins], axis=0)
             ins = tf.reshape(ins, ins_shape)
 
         elif args.segment:
@@ -157,7 +157,7 @@ def extract_batch(dataset, config):
         elif args.instance:
             im, bbox, gt, ins, num_ins, im_h, im_w = \
                 data_provider.get(['image', 'object/bbox', 'object/label',
-                                   'image/instances',
+                                   'image/instance',
                                    'image/num_instances',
                                    'image/height',
                                    'image/width'])
