@@ -10,7 +10,8 @@ from coco_loader import COCOLoader, COCO_CATS
 from math import ceil
 
 slim = tf.contrib.slim
-instance_nums = 100  # instance nums per image
+instance_nums = 20  # instance nums per image
+DATASETS_ROOT = "/home/yaosy/Diskb/projects/blitznet_instance_segment/Datasets"
 
 def normalize_bboxes(bboxes, w, h):
     """rescales bboxes to [0, 1]"""
