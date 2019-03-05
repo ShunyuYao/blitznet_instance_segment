@@ -62,7 +62,7 @@ def mirror_distortions(image, rois, params):
 def zoomout(image, gt_bboxes, params):
     X_out = tf.random_uniform([], 1.05, params['X_out'])
     h, w, _ = tf.unstack(tf.to_float(tf.shape(image)))
-    zoomout_color = params['zoomout_color']+[0]
+    zoomout_color = params['zoomout_color']+[0]+[0]*args.num_instance
 
     bg_color = tf.constant(zoomout_color, dtype=tf.float32)
     x_shift = tf.random_uniform([], 0, (X_out - 1) * w)
