@@ -104,7 +104,10 @@ class PriorBoxGrid():
 
     def encode_gt_tf(self, gt_boxes, gt_cats):
         """Matching of candidate bboxes with gt in tensorflow
-        Attention: very painful"""
+        Attention: very painful
+        the input of gt_boxes and gt_cats are from one image
+        """
+        # these codes below implies the situation when there are no groundtruth bbox
         n_pos = tf.cast(tf.shape(gt_cats)[0], tf.int32)
         empty_gt = tf.equal(n_pos, 0)
 
@@ -186,4 +189,4 @@ class PriorBoxGrid():
         # compute all refinements
         refine_vec = encode_bboxes_tf(self.tiling, gt_bboxes_vec, self.config)
 
-        return (positive_vec, cats_vec, refine_vec)
+        return (positive_vec, cats_vec, refine_vec, gt_matches)

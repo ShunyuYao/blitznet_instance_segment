@@ -172,13 +172,13 @@ def extract_batch(dataset, config):
         im = tf.to_float(im)/255
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
-        inds, cats, refine = bboxer.encode_gt_tf(bbox, gt)
-        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins],
+        inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
+        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, gt_matches],
                                       args.batch_size, 2048, 64, num_threads=4)
 
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins, gt_matches = extract_batch(dataset, config)
 
     net.create_trunk(image_ph)
 
@@ -203,7 +203,7 @@ def train(dataset, net, config):
         instance_output = net.create_instance_head(dataset.num_classes, rois)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
-                                                           classes_ph,inds_ph, seg_logits,
+                                                           classes_ph, inds_ph, seg_logits,
                                                            seg_gt, dataset, config)
 
     ### setting up the learning rate ###
