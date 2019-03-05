@@ -112,20 +112,20 @@ def get_dataset(*files):
             dtype=tf.int64),
         'image/object/difficulty': tf.VarLenFeature(
             dtype=tf.int64),
-        'image/height': tf.VarLenFeature(
+        'image/height': tf.FixedLenFeature(
+            [], tf.int64, default_value=0),
+        'image/width': tf.FixedLenFeature(
+            [], tf.int64, default_value=0),
+        'image/instance': tf.VarLenFeature(
             dtype=tf.int64),
-        'image/width': tf.VarLenFeature(
-            dtype=tf.int64),
-        'image/instances': tf.VarLenFeature(
-            dtype=tf.int64),
-        'image/num_instances': tf.VarLenFeature(
-            dtype=tf.int64),
-    }
+        'image/num_instances': tf.FixedLenFeature(
+            [], tf.int64, default_value=0),
+}
 
     items_to_handlers = {
         'image': slim.tfexample_decoder.Image('image/encoded', 'image/format', channels=3),
         'image/segmentation': slim.tfexample_decoder.Image('image/segmentation/encoded', 'image/segmentation/format', channels=1),
-        'image/instances': slim.tfexample_decoder.Tensor('image/instances'),
+        'image/instance': slim.tfexample_decoder.Tensor('image/instance'),
         'image/num_instances': slim.tfexample_decoder.Tensor('image/num_instances'),
         'image/height': slim.tfexample_decoder.Tensor('image/height'),
         'image/width': slim.tfexample_decoder.Tensor('image/width'),
@@ -138,7 +138,7 @@ def get_dataset(*files):
     items_to_descriptions = {
         'image': 'A color image of varying height and width.',
         'image/segmentation': 'A semantic segmentation.',
-        'image/instances': 'A 1-d array of instance segmentations.',
+        'image/instance': 'A 1-d array of instance segmentations.',
         'image/num_instances': 'Num of instances in one image to restruct instances.',
         'object/bbox': 'A list of bounding boxes.',
         'object/label': 'A list of labels, one per each object.',
