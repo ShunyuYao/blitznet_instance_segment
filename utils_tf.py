@@ -152,6 +152,7 @@ def filter_small_gt(gt_bboxes, gt_cats, min_size):
 
 def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
     params = config['train_augmentation']
+    num_ins = ins.shape[-1]
     img = apply_with_random_selector(
         img,
         lambda x, ordering: photometric_distortions(x, ordering, params),
@@ -178,7 +179,7 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
     if ins is not None:
         ins_shape = args.ins_shape
         # add a dim because tf.image.resize needs 4-d tensor
-        ins = tf.expand_dims(img[..., 4:], 0)
+        ins = tf.expand_dims(img[..., 4:4+num_ins], 0)
         # squeeze the first dim after resize
         ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
         ins = tf.cast(tf.round(ins), tf.int64)
