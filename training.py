@@ -179,6 +179,7 @@ def extract_batch(dataset, config):
 
 def train(dataset, net, config):
     image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins, gt_matches = extract_batch(dataset, config)
+    print("gt_matches:", gt_matches)
 
     net.create_trunk(image_ph)
 
