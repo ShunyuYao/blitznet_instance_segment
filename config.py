@@ -142,7 +142,7 @@ parser.add_argument("--top_k_confidences", default=100)
 parser.add_argument("--ins_shape", default=24, type=int)
 # instance num per image zero padded if less than this num
 # also need to modify the instance_num in dataset.py
-parser.add_argumnet("--instance_num", default=100, type=int)
+parser.add_argument("--instance_num", default=100, type=int)
 
 args = parser.parse_args()
 train_dir = os.path.join(CKPT_ROOT, args.run_name)
