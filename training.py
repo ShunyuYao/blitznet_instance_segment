@@ -94,8 +94,8 @@ def objective(location, confidence, refine_ph, classes_ph,
         hard_matches = tf.equal(tf.boolean_mask(inferred_class, neg_mask),
                                 tf.boolean_mask(classes_ph, neg_mask))
         hard_matches = tf.gather(hard_matches, top_k_inds)
-        train_acc = ((tf.reduce_sum(tf.to_float(positive_matches)) +
-                    tf.reduce_sum(tf.to_float(hard_matches))) / normalizer)
+        train_acc = ((tf.t(tf.to_float(positive_matches)) +
+                     tf.reduce_sum(tf.to_float(hard_matches))) / normalizer)
         tf.summary.scalar('accuracy/train', train_acc)
 
         recognized_class = tf.argmax(confidence, 2)
@@ -141,31 +141,28 @@ def extract_batch(dataset, config):
             dataset, num_readers=2,
             common_queue_capacity=512, common_queue_min=32)
         if args.instance and args.segment:
-            im, bbox, gt, seg, ins, num_ins, im_h, im_w = \
+            im, bbox, gt, seg, ins, im_h, im_w = \
                 data_provider.get(['image', 'object/bbox', 'object/label',
                                    'image/segmentation',
                                    'image/instance',
-                                   'image/num_instances',
                                    'image/height',
                                    'image/width'])
             print("ins: ", ins)
             print("bbox: ", bbox)
             print("gt: ", gt)
-            num_ins_test = tf.reshape(num_ins, (-1,))
-            ins_shape = tf.stack([im_h, im_w, num_ins], axis=0)
+            ins_shape = tf.stack([im_h, im_w, args.instance_num], axis=0)
             ins = tf.reshape(ins, ins_shape)
 
         elif args.segment:
             im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
                                                    'image/segmentation'])
         elif args.instance:
-            im, bbox, gt, ins, num_ins, im_h, im_w = \
+            im, bbox, gt, ins, im_h, im_w = \
                 data_provider.get(['image', 'object/bbox', 'object/label',
                                    'image/instance',
-                                   'image/num_instances',
                                    'image/height',
                                    'image/width'])
-            ins_shape = tf.concat([im_h, im_w, num_ins], axis=0)
+            ins_shape = tf.stack([im_h, im_w, args.instance_num], axis=0)
             ins = tf.reshape(ins, ins_shape)
 
         else:
@@ -174,14 +171,14 @@ def extract_batch(dataset, config):
             ins = tf.expand_dims(tf.zeros(tf.shape(im)[:2]), 2)
         im = tf.to_float(im)/255
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
-        im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, num_ins, config)
-        inds, cats, refine = bboxer.encode_gt_tf(bbox, gt)
-        return tf.train.shuffle_batch([im, inds, refine, cats, seg, num_ins_test, ins],
+        im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
+        inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
+        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, gt_matches],
                                       args.batch_size, 2048, 64, num_threads=4)
 
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, num_ins, ins = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins, gt_matches = extract_batch(dataset, config)
 
     net.create_trunk(image_ph)
 
@@ -206,7 +203,7 @@ def train(dataset, net, config):
         instance_output = net.create_instance_head(dataset.num_classes, rois)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
-                                                           classes_ph,inds_ph, seg_logits,
+                                                           classes_ph, inds_ph, seg_logits,
                                                            seg_gt, dataset, config)
 
     ### setting up the learning rate ###

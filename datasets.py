@@ -194,7 +194,7 @@ def create_coco_dataset(split):
                 segmentation = np.zeros((h, w), dtype=np.uint8)
                 coco_anns = loader._get_coco_annotations(f, only_instances=False)
                 instances = np.zeros([instance_nums, h, w], dtype=np.uint8)
-                for i, ann in enumerate(coco_anns):
+                for num_ann, ann in enumerate(coco_anns):
                     mask = loader._read_segmentation(ann, h, w)
                     cid = loader.coco_ids_to_internal[ann['category_id']]
                     assert mask.shape == segmentation.shape
@@ -202,8 +202,8 @@ def create_coco_dataset(split):
 
                     instance = np.zeros((h, w), dtype=np.uint8)
                     instance[mask > 0] = cid
-                    if i < instance_nums:
-                        instances[i] = instance
+                    if num_ann < instance_nums:
+                        instances[num_ann] = instance
 
                 instances = instances.reshape(-1)
                 png_string = sess.run(encoded_image,
