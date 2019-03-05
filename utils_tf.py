@@ -179,13 +179,14 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, num_ins, config):
     if ins is not None:
         ins_shape = args.ins_shape
         # add a dim because tf.image.resize needs 4-d tensor
-        ins = tf.expand_dims(img[..., 4:], 0)
+        # ins = tf.expand_dims(img[..., 4:], 0)
         # squeeze the first dim after resize
-        ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
-        num_ins = tf.cast(num_ins, tf.int32)
-        ins_reshape = tf.concat([tf.constant([ins_shape, ins_shape]), num_ins], axis=0)
+        # ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
+        # num_ins = tf.cast(num_ins, tf.int32)
+        # ins_reshape = tf.concat([tf.constant([ins_shape, ins_shape]), num_ins], axis=0)
         # ins.set_shape([ins_shape, ins_shape, num_ins])
         ins = tf.cast(tf.round(ins), tf.int64)
+        # ins = tf.reshape(ins, (-1, ))
         print("ins shape: ", ins.shape)
     return img_out, gt_bboxes, gt_cats, seg, ins
 
