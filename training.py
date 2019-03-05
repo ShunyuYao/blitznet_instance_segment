@@ -94,7 +94,7 @@ def objective(location, confidence, refine_ph, classes_ph,
         hard_matches = tf.equal(tf.boolean_mask(inferred_class, neg_mask),
                                 tf.boolean_mask(classes_ph, neg_mask))
         hard_matches = tf.gather(hard_matches, top_k_inds)
-        train_acc = ((tf.t(tf.to_float(positive_matches)) +
+        train_acc = ((tf.reduce_sum(tf.to_float(positive_matches)) +
                      tf.reduce_sum(tf.to_float(hard_matches))) / normalizer)
         tf.summary.scalar('accuracy/train', train_acc)
 

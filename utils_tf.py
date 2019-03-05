@@ -62,7 +62,7 @@ def mirror_distortions(image, rois, params):
 def zoomout(image, gt_bboxes, params):
     X_out = tf.random_uniform([], 1.05, params['X_out'])
     h, w, _ = tf.unstack(tf.to_float(tf.shape(image)))
-    zoomout_color = params['zoomout_color']+[0]+[0]*args.num_instance
+    zoomout_color = params['zoomout_color']+[0]+[0]*args.instance_num
 
     bg_color = tf.constant(zoomout_color, dtype=tf.float32)
     x_shift = tf.random_uniform([], 0, (X_out - 1) * w)
@@ -182,7 +182,7 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
         ins = tf.expand_dims(img[..., 4:], 0)
         # squeeze the first dim after resize
         ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
-        ins_reshape = tf.stack([ins_shape, ins_shape, args.num_instance])
+        ins_reshape = tf.stack([ins_shape, ins_shape, args.instance_num])
         ins = tf.reshape(ins, ins_reshape)
         ins = tf.cast(tf.round(ins), tf.int64)
         print("ins shape: ", ins.shape)
