@@ -10,7 +10,7 @@ from coco_loader import COCOLoader, COCO_CATS
 from math import ceil
 
 slim = tf.contrib.slim
-
+instance_nums = 100  # instance nums per image
 
 def normalize_bboxes(bboxes, w, h):
     """rescales bboxes to [0, 1]"""
@@ -40,7 +40,7 @@ def _bytes_feature(value):
 
 
 def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty,
-                        segmentation, instances, height, width, num_instances):
+                        segmentation, instances, height, width):
     xmin = bboxes[:, 0].tolist()
     ymin = bboxes[:, 1].tolist()
     xmax = (bboxes[:, 2] + bboxes[:, 0]).tolist()
@@ -66,7 +66,6 @@ def _convert_to_example(filename, image_buffer, bboxes, cats, difficulty,
         'image/segmentation/format': _bytes_feature(tf.compat.as_bytes(segmentation_format)),
         'image/segmentation/encoded': _bytes_feature(tf.compat.as_bytes(segmentation)),
         'image/instance': _int64_feature(instances),
-        'image/num_instances': _int64_feature(num_instances)
     }))
     return example
 
@@ -118,15 +117,12 @@ def get_dataset(*files):
             [], tf.int64, default_value=0),
         'image/instance': tf.VarLenFeature(
             dtype=tf.int64),
-        'image/num_instances': tf.FixedLenFeature(
-            [], tf.int64, default_value=0),
 }
 
     items_to_handlers = {
         'image': slim.tfexample_decoder.Image('image/encoded', 'image/format', channels=3),
         'image/segmentation': slim.tfexample_decoder.Image('image/segmentation/encoded', 'image/segmentation/format', channels=1),
         'image/instance': slim.tfexample_decoder.Tensor('image/instance'),
-        'image/num_instances': slim.tfexample_decoder.Tensor('image/num_instances'),
         'image/height': slim.tfexample_decoder.Tensor('image/height'),
         'image/width': slim.tfexample_decoder.Tensor('image/width'),
         'object/bbox': slim.tfexample_decoder.BoundingBox(
@@ -139,7 +135,6 @@ def get_dataset(*files):
         'image': 'A color image of varying height and width.',
         'image/segmentation': 'A semantic segmentation.',
         'image/instance': 'A 1-d array of instance segmentations.',
-        'image/num_instances': 'Num of instances in one image to restruct instances.',
         'object/bbox': 'A list of bounding boxes.',
         'object/label': 'A list of labels, one per each object.',
         'object/difficulty': 'A list of binary difficulty flags, one per each object.',
@@ -197,8 +192,8 @@ def create_coco_dataset(split):
 
                 segmentation = np.zeros((h, w), dtype=np.uint8)
                 coco_anns = loader._get_coco_annotations(f, only_instances=False)
-                instances = np.zeros([1, h, w], dtype=np.uint8)
-                for ann in coco_anns:
+                instances = np.zeros([instance_nums, h, w], dtype=np.uint8)
+                for i, ann in enumerate(coco_anns):
                     mask = loader._read_segmentation(ann, h, w)
                     cid = loader.coco_ids_to_internal[ann['category_id']]
                     assert mask.shape == segmentation.shape
@@ -206,15 +201,14 @@ def create_coco_dataset(split):
 
                     instance = np.zeros((h, w), dtype=np.uint8)
                     instance[mask > 0] = cid
-                    instances = np.concatenate([instances,
-                                                np.expand_dims(instance, 0)], axis=0)
-                num_instances = instances.shape[0]
-                instances = instances.reshape(-1)
+                    if i < instance_nums:
+                        instances[i] = instance
 
+                instances = instances.reshape(-1)
                 png_string = sess.run(encoded_image,
                                       feed_dict={image_placeholder: segmentation})
                 example = _convert_to_example(path, image_data, gt_bb, gt_cats, diff, png_string,
-                                              instances, h, w, num_instances)
+                                              instances, h, w)
                 if i % 100 == 0:
                     print("%i files are processed" % i)
                 writer.write(example.SerializeToString())
@@ -266,7 +260,7 @@ if __name__ == '__main__':
     # create_voc_dataset('12', 'train', True, True)
     # create_voc_dataset('12', 'val', True)
 
-    create_coco_dataset('val2014')
+    create_coco_dataset('train2014')
     # create_coco_dataset('valminusminival2014')
     # create_coco_dataset('minival2014')
     # create_coco_dataset('train2014')
