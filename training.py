@@ -148,7 +148,8 @@ def extract_batch(dataset, config):
                                    'image/num_instances',
                                    'image/height',
                                    'image/width'])
-            ins = tf.reshape(ins, (im_h, im_w, num_ins))
+            ins_shape = tf.concat([im_h, im_w, num_ins], axis=0)
+            ins = tf.reshape(ins, ins_shape)
 
         elif args.segment:
             im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
@@ -168,10 +169,10 @@ def extract_batch(dataset, config):
             ins = tf.expand_dims(tf.zeros(tf.shape(im)[:2]), 2)
         im = tf.to_float(im)/255
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
-
+        print(bbox)
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
+        print("ins shape: ", ins.shape)
         inds, cats, refine = bboxer.encode_gt_tf(bbox, gt)
-
         return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins],
                                       args.batch_size, 2048, 64, num_threads=4)
 
