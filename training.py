@@ -214,7 +214,9 @@ def extract_batch(dataset, config):
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
         bbox_pads = args.instance_num - tf.shape(bbox)[0]
-        bbox = tf.pad(bbox, [0, bbox_pads], [0, 0])
+        paddings = [[0, bbox_pads], [0, 0]]
+        bbox = tf.pad(bbox, paddings)
+        bbox = tf.reshape(bbox, (args.instance_num, 4))
         return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, gt_matches, bbox],
                                       args.batch_size, 2048, 64, num_threads=4)
 
@@ -244,9 +246,10 @@ def train(dataset, net, config):
     if args.instance:
         rois = net.top_k_rois  # [batch, num_rois (layer y1 x1 y2 x2)]
         top_k_inds = net.top_k_inds  # [batch, rois_idxs]
-        gt_inds = tf.gather_nd(gt_matches, top_k_inds)
-        gt_bbox = tf.gather_nd(bbox, gt_inds)
-        gt_ins = tf.gather_nd(ins, gt_inds)
+        gt_inds = tf.batch_gather(gt_matches, top_k_inds)
+        gt_inds = tf.cast(gt_inds, tf.int32)
+        gt_bbox = tf.batch_gather(bbox, gt_inds)
+        gt_ins = tf.batch_gather(ins, gt_inds)
         instance_output = net.create_instance_head(dataset.num_classes, rois)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
