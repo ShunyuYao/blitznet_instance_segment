@@ -213,6 +213,8 @@ def extract_batch(dataset, config):
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
+        bbox_pads = args.instance_num - tf.shape(bbox)[0]
+        bbox = tf.pad(bbox, [0, bbox_pads], [0, 0])
         return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, gt_matches, bbox],
                                       args.batch_size, 2048, 64, num_threads=4)
 
