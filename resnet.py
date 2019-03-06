@@ -209,7 +209,7 @@ class ResNet(object):
         roi_info = self.roi_bounds.cal_roi_info()
         # shape [batch*num_rois (layer y1 x1 y2 x2)]
         top_k_rois = tf.gather(roi_info, top_k_inds)
-        self.top_k_inds = top_k_inds
+        self.top_k_inds = tf.reshape(top_k_inds, (batch_size, k))
         top_k_rois = tf.reshape(top_k_rois,
                                 (batch_size, k, 5))  # tf.shape(top_k_rois)[1:]))
         self.top_k_rois = top_k_rois
