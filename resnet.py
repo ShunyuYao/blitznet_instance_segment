@@ -376,7 +376,7 @@ class ROI_bounds(object):
         # roi in shape [layer_num, y1, x1, y2, x2] normalized
         # (needs to take the aspect_ratios into account)
         for layer_num, fm_size in enumerate(self.fm_sizes):
-            # num_prior = len(self.config['aspect_ratios'][layer_num])*2 + 2
+            num_prior = len(self.config['aspect_ratios'][layer_num])*2 + 2
             for w in range(fm_size):
                 for h in range(fm_size):
                     radius = args.det_kernel // 2
@@ -384,7 +384,7 @@ class ROI_bounds(object):
                     x1 = (w - radius) / fm_size
                     y2 = (h + radius) / fm_size
                     x2 = (w + radius) / fm_size
-                    roi_per_prior = [[layer_num, y1, x1, y2, x2]]  # * num_prior
+                    roi_per_prior = [[layer_num, y1, x1, y2, x2]] * num_prior
                     roi_info.extend(roi_per_prior)
 
         self.roi_info = tf.stack(roi_info, 0)

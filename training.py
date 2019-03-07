@@ -11,7 +11,7 @@ import logging
 import logging.config
 import subprocess
 
-import keras as K
+import keras.backend as K
 import tensorflow as tf
 import numpy as np
 
@@ -35,21 +35,25 @@ roi_bounds = ROI_bounds(net_config)
 roi_info = roi_bounds.cal_roi_info()
 
 
-def get_match_roi_info(gt_matches, roi_info):
-    gt_matches_idx = tf.reshape(tf.where(gt_matches > 0), (-1,))
-    match_roi_info = tf.gather(roi_info, gt_matches_idx // 6)  # (?, 5)
-    print("gt_matches_idx: ", gt_matches_idx)
-    print("roi_info: ", roi_info)
-    print("match roi info shape: ", match_roi_info.shape)
-    roi_pads = args.instance_num - tf.shape(match_roi_info)[0]
+def get_match_roi_info(gt_matches_idx, roi_info):
+    match_roi_info = tf.gather(roi_info, gt_matches_idx)  # (?, 5)
+    # print("gt_matches_idx: ", gt_matches_idx)
+    # print("roi_info: ", roi_info)
+    # print("match roi info shape: ", match_roi_info.shape)
+    need_pad = args.instance_num > tf.shape(match_roi_info)[0]
+    roi_pads = tf.cond(need_pad,
+                       lambda: args.instance_num - tf.shape(match_roi_info)[0],
+                       lambda: 0)
     match_roi_info = tf.pad(match_roi_info, [[0, roi_pads], [0, 0]],
                             mode='CONSTANT', constant_values=0)
+    match_roi_info = match_roi_info[:args.instance_num, :]
     match_roi_info = tf.reshape(match_roi_info, (args.instance_num, 5))
     return match_roi_info
 
 
 def objective(location, confidence, refine_ph, classes_ph,
-              pos_mask, seg_logits, seg_gt, dataset, config):
+              pos_mask, seg_logits, seg_gt, dataset, config,
+              target_masks, target_class_ids, pred_masks):
     def smooth_l1(x, y):
         abs_diff = tf.abs(x-y)
         return tf.reduce_sum(tf.where(abs_diff < 1,
@@ -127,44 +131,44 @@ def objective(location, confidence, refine_ph, classes_ph,
         tf.summary.scalar('metrics/train/f1', f1)
         return class_loss, bbox_loss, train_acc, number_of_positives
 
-        def instance_loss_graph(target_masks, target_class_ids, pred_masks):
-            """Mask binary cross-entropy loss for the masks head.
+    def instance_loss_graph(target_masks, target_class_ids, pred_masks):
+        """Mask binary cross-entropy loss for the masks head.
 
-            target_masks: [batch, num_rois, height, width].
-                A float32 tensor of values 0 or 1. Uses zero padding to fill array.
-            target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
-            pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
-                        with values from 0 to 1.
-            """
-            # Reshape for simplicity. Merge first two dimensions into one.
-            target_class_ids = K.reshape(target_class_ids, (-1,))
-            mask_shape = tf.shape(target_masks)
-            target_masks = K.reshape(target_masks, (-1, mask_shape[2], mask_shape[3]))
-            pred_shape = tf.shape(pred_masks)
-            pred_masks = K.reshape(pred_masks,
-                                   (-1, pred_shape[2], pred_shape[3], pred_shape[4]))
-            # Permute predicted masks to [N, num_classes, height, width]
-            pred_masks = tf.transpose(pred_masks, [0, 3, 1, 2])
+        target_masks: [batch, num_rois, height, width].
+            A float32 tensor of values 0 or 1. Uses zero padding to fill array.
+        target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
+        pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
+                    with values from 0 to 1.
+        """
+        # Reshape for simplicity. Merge first two dimensions into one.
+        target_class_ids = K.reshape(target_class_ids, (-1,))
+        mask_shape = tf.shape(target_masks)
+        target_masks = K.reshape(target_masks, (-1, mask_shape[2], mask_shape[3]))
+        pred_shape = tf.shape(pred_masks)
+        pred_masks = K.reshape(pred_masks,
+                               (-1, pred_shape[2], pred_shape[3], pred_shape[4]))
+        # Permute predicted masks to [N, num_classes, height, width]
+        pred_masks = tf.transpose(pred_masks, [0, 3, 1, 2])
 
-            # Only positive ROIs contribute to the loss. And only
-            # the class specific mask of each ROI.
-            positive_ix = tf.where(target_class_ids > 0)[:, 0]
-            positive_class_ids = tf.cast(
-                tf.gather(target_class_ids, positive_ix), tf.int64)
-            indices = tf.stack([positive_ix, positive_class_ids], axis=1)
+        # Only positive ROIs contribute to the loss. And only
+        # the class specific mask of each ROI.
+        positive_ix = tf.where(target_class_ids > 0)[:, 0]
+        positive_class_ids = tf.cast(
+            tf.gather(target_class_ids, positive_ix), tf.int64)
+        indices = tf.stack([positive_ix, positive_class_ids], axis=1)
 
-            # Gather the masks (predicted and true) that contribute to loss
-            y_true = tf.gather(target_masks, positive_ix)
-            y_pred = tf.gather_nd(pred_masks, indices)
+        # Gather the masks (predicted and true) that contribute to loss
+        y_true = tf.gather(target_masks, positive_ix)
+        y_pred = tf.gather_nd(pred_masks, indices)
 
-            # Compute binary cross entropy. If no positive ROIs, then return 0.
-            # shape: [batch, roi, num_classes]
-            loss = K.switch(tf.size(y_true) > 0,
-                            K.binary_crossentropy(target=y_true, output=y_pred),
-                            tf.constant(0.0))
-            loss = K.mean(loss)
-            return loss
-
+        # Compute binary cross entropy. If no positive ROIs, then return 0.
+        # shape: [batch, roi, num_classes]
+        loss = K.switch(tf.size(y_true) > 0,
+                        K.binary_crossentropy(target=y_true, output=y_pred),
+                        tf.constant(0.0))
+        loss = K.mean(loss)
+        tf.summary.scalar('loss/instance', loss)
+        return loss
 
     the_loss = 0
     train_acc = tf.constant(1)
@@ -181,13 +185,17 @@ def objective(location, confidence, refine_ph, classes_ph,
         det_loss = class_loss + bbox_loss
         the_loss += det_loss
 
+    if args.instance:
+        ins_loss = instance_loss_graph(target_masks, target_class_ids, pred_masks)
+        the_loss += ins_loss
+
     regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     wd_loss = tf.add_n(regularization_losses)
     tf.summary.scalar('loss/weight_decay', wd_loss)
     the_loss += wd_loss
 
     tf.summary.scalar('loss/full', the_loss)
-    return the_loss, train_acc, mean_iou, update_mean_iou
+    return the_loss, train_acc, mean_iou, update_mean_iou, ins_loss
 
 
 def extract_batch(dataset, config):
@@ -232,16 +240,30 @@ def extract_batch(dataset, config):
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
 
-        bbox_pads = args.instance_num - tf.shape(bbox)[0]
-        paddings = [[0, bbox_pads], [0, 0]]
-        bbox = tf.pad(bbox, paddings)
-        bbox = tf.reshape(bbox, (args.instance_num, 4))
+        # bbox_pads = args.instance_num - tf.shape(bbox)[0]
+        # paddings = [[0, bbox_pads], [0, 0]]
+        # bbox = tf.pad(bbox, paddings)
+        # bbox = tf.reshape(bbox, (args.instance_num, 4))
 
         # print("gt_matches shape: ", gt_matches)
         not_empty_gt_matches = tf.reduce_sum(gt_matches) > 0
+        gt_matches_idx = tf.reshape(tf.where(gt_matches > 0), (-1,))
+        # gt_matches_idx, _ = tf.unique(gt_matches_idx)
+
         match_roi_info = tf.cond(not_empty_gt_matches,
-                                 true_fn=lambda: get_match_roi_info(gt_matches, roi_info),
+                                 true_fn=lambda: get_match_roi_info(gt_matches_idx, roi_info),
                                  false_fn=lambda: tf.zeros((args.instance_num, 5)))
+        gt_matches = tf.gather(gt_matches, gt_matches_idx)
+        gt_matches = tf.cond(not_empty_gt_matches,
+                             lambda: gt_matches - 1,
+                             lambda: gt_matches)
+        bbox_matches = tf.gather(bbox, gt_matches)
+        need_pad = args.instance_num > tf.shape(bbox_matches)[0]
+        pads = tf.cond(need_pad,
+                       lambda: args.instance_num - tf.shape(bbox_matches)[0],
+                       lambda: 0)
+        bbox_matches = tf.pad(bbox_matches, [[0, pads], [0, 0]])
+        bbox_matches = bbox_matches[:args.instance_num, :]
         # if tf.reduce_sum(gt_matches) > 0:
         #     gt_matches_idx = tf.where(gt_matches > 0)
         #     match_roi_info = tf.squeeze(tf.gather(roi_info, gt_matches_idx // 6))  # (?, 5)
@@ -255,11 +277,20 @@ def extract_batch(dataset, config):
         # else:
         #     match_roi_info = tf.zeros((args.instance_num, 5))
 
-        ins = extract_matched_gt_instance(bbox, ins,
+        ins = extract_matched_gt_instance(bbox_matches, ins,
                                           [args.ins_shape, args.ins_shape])
         ins = tf.reshape(ins, (args.instance_num, args.ins_shape, args.ins_shape))
 
-        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, match_roi_info, bbox],
+        ins_cats = tf.gather(cats, gt_matches_idx)
+        need_pad = args.instance_num > tf.shape(ins_cats)[0]
+        pads = tf.cond(need_pad,
+                       lambda: args.instance_num - tf.shape(ins_cats)[0],
+                       lambda: 0)
+        ins_cats = tf.pad(ins_cats, [[0, pads]])
+        ins_cats = ins_cats[:args.instance_num]
+        ins_cats = tf.reshape(ins_cats, (args.instance_num,))
+
+        return tf.train.shuffle_batch([im, inds, refine, cats, ins_cats, seg, ins, match_roi_info],
                                       args.batch_size, 2048, 64, num_threads=4)
 
 def extract_matched_gt_instance(bbox, ins, roi_shape):
@@ -270,7 +301,7 @@ def extract_matched_gt_instance(bbox, ins, roi_shape):
     return ins
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins, match_roi_info, bbox = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, ins_classes, seg_gt, ins, match_roi_info = extract_batch(dataset, config)
 
     net.create_trunk(image_ph)
 
@@ -313,12 +344,13 @@ def train(dataset, net, config):
         # gt_matches_id = tf.reshape(gt_matches_idx, (-1,))
         # top_k_rois = tf.gather(roi_info, gt_matches_id // 6)
         # top_k_rois = tf.reshape(top_k_rois, (args.batch_size, -1, 5))
-        pass
-        # instance_output = net.create_instance_head(dataset.num_classes, match_roi_info)
+        instance_output = net.create_instance_head(dataset.num_classes, match_roi_info)
 
-    loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
-                                                           classes_ph, inds_ph, seg_logits,
-                                                           seg_gt, dataset, config)
+    loss, train_acc, mean_iou, update_mean_iou, ins_loss = \
+        objective(location, confidence, refine_ph,
+                  classes_ph, inds_ph, seg_logits,
+                  seg_gt, dataset, config,
+                  ins, ins_classes, instance_output)
 
     ### setting up the learning rate ###
     global_step = slim.get_or_create_global_step()
@@ -391,8 +423,8 @@ def train(dataset, net, config):
         for step in range(starting_step, args.max_iterations+1):
             start_time = time.time()
             try:
-                train_loss, acc, iou, _, lr = sess.run([train_op, train_acc, mean_iou,
-                                                        update_mean_iou, learning_rate])
+                train_loss, acc, iou, _, lr, instance_loss = sess.run([train_op, train_acc, mean_iou,
+                                                                      update_mean_iou, learning_rate, ins_loss])
             except (tf.errors.OutOfRangeError, tf.errors.CancelledError):
                 break
             duration = time.time() - start_time
@@ -401,21 +433,20 @@ def train(dataset, net, config):
             examples_per_sec = num_examples_per_step / duration
             sec_per_batch = float(duration)
 
-            format_str = ('step %d, loss = %.2f, acc = %.2f, iou=%f, lr=%.3f (%.1f examples/sec; %.3f '
+            format_str = ('step %d, loss = %.2f, ins_loss = %.2f, acc = %.2f, iou=%f, lr=%.3f (%.1f examples/sec; %.3f '
                           'sec/batch)')
-            log.info(format_str % (step, train_loss, acc, iou, -np.log10(lr),
+            log.info(format_str % (step, train_loss, instance_loss, acc, iou, -np.log10(lr),
                                 examples_per_sec, sec_per_batch))
 
             # output_k_inds, output_inds, output_bbox, output_ins, output_match, gt_match_idx = \
             #     sess.run([top_k_inds, gt_inds_output, gt_bbox, gt_ins, gt_matches_output, gt_matches_idx])
-            output_gt_bbox, output_gt_matches = sess.run([bbox, match_roi_info])
+            # output_gt_matches = sess.run([match_roi_info])
             # print("top k inds: ", output_k_inds)
             # print("output inds:", output_inds)
             # print("output matches:", output_match)
             # print("output match idx", gt_match_idx)
             # print("output match confidence", output_match_confidence)
-            print("output bbox:", output_gt_bbox)
-            print("output gt matches:", output_gt_matches)
+            # print("output gt matches:", output_gt_matches)
             # print("output ins:", output_ins)
 
             if step % 100 == 0:
