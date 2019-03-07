@@ -19,7 +19,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 from vgg import VGG
-from resnet import ResNet, PyramidROIExtract, ROI_bounds
+from resnet import ResNet
 from utils import print_variables
 from utils_tf import yxyx_to_xywh, data_augmentation
 from datasets import get_dataset
@@ -30,22 +30,6 @@ streaming_mean_iou = tf.contrib.metrics.streaming_mean_iou
 
 logging.config.dictConfig(get_logging_config(args.run_name))
 log = logging.getLogger()
-
-roi_bounds = ROI_bounds(net_config)
-roi_info = roi_bounds.cal_roi_info()
-
-
-def get_match_roi_info(gt_matches, roi_info):
-    gt_matches_idx = tf.reshape(tf.where(gt_matches > 0), (-1,))
-    match_roi_info = tf.gather(roi_info, gt_matches_idx // 6)  # (?, 5)
-    print("gt_matches_idx: ", gt_matches_idx)
-    print("roi_info: ", roi_info)
-    print("match roi info shape: ", match_roi_info.shape)
-    roi_pads = args.instance_num - tf.shape(match_roi_info)[0]
-    match_roi_info = tf.pad(match_roi_info, [[0, roi_pads], [0, 0]],
-                            mode='CONSTANT', constant_values=0)
-    match_roi_info = tf.reshape(match_roi_info, (args.instance_num, 5))
-    return match_roi_info
 
 
 def objective(location, confidence, refine_ph, classes_ph,
@@ -206,10 +190,8 @@ def extract_batch(dataset, config):
             print("ins: ", ins)
             print("bbox: ", bbox)
             print("gt: ", gt)
-            ins_shape = tf.stack([im_h, im_w, 20], axis=0)
+            ins_shape = tf.stack([im_h, im_w, args.instance_num], axis=0)
             ins = tf.reshape(ins, ins_shape)
-            pads = args.instance_num - tf.shape(ins)[-1]
-            ins = tf.pad(ins, [[0, 0], [0, 0], [0, pads]])
 
         elif args.segment:
             im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
@@ -231,46 +213,17 @@ def extract_batch(dataset, config):
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
-
         bbox_pads = args.instance_num - tf.shape(bbox)[0]
         paddings = [[0, bbox_pads], [0, 0]]
         bbox = tf.pad(bbox, paddings)
         bbox = tf.reshape(bbox, (args.instance_num, 4))
-
-        # print("gt_matches shape: ", gt_matches)
-        not_empty_gt_matches = tf.reduce_sum(gt_matches) > 0
-        match_roi_info = tf.cond(not_empty_gt_matches,
-                                 true_fn=lambda: get_match_roi_info(gt_matches, roi_info),
-                                 false_fn=lambda: tf.zeros((args.instance_num, 5)))
-        # if tf.reduce_sum(gt_matches) > 0:
-        #     gt_matches_idx = tf.where(gt_matches > 0)
-        #     match_roi_info = tf.squeeze(tf.gather(roi_info, gt_matches_idx // 6))  # (?, 5)
-        #     # print("gt_matches_idx: ", gt_matches_idx)
-        #     # print("roi_info: ", roi_info)
-        #     print("match roi info shape: ", match_roi_info.shape)
-        #     roi_pads = args.instance_num - tf.shape(match_roi_info)[0]
-        #     tf.pad(match_roi_info, [[0, roi_pads], [0, 0]],
-        #            mode='CONSTANT', constant_values=0)
-        #     match_roi_info = tf.reshape(match_roi_info, (args.instance_num, 5))
-        # else:
-        #     match_roi_info = tf.zeros((args.instance_num, 5))
-
-        ins = extract_matched_gt_instance(bbox, ins,
-                                          [args.ins_shape, args.ins_shape])
-        ins = tf.reshape(ins, (args.instance_num, args.ins_shape, args.ins_shape))
-
-        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, match_roi_info, bbox],
+        return tf.train.shuffle_batch([im, inds, refine, cats, seg, ins, gt_matches, bbox],
                                       args.batch_size, 2048, 64, num_threads=4)
 
-def extract_matched_gt_instance(bbox, ins, roi_shape):
-    ins = tf.expand_dims(ins, -1)
-    box_ind = tf.range(args.instance_num)
-    ins = tf.image.crop_and_resize(ins, bbox, box_ind, tuple(roi_shape))
-    ins = tf.squeeze(ins)
-    return ins
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins, match_roi_info, bbox = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, seg_gt, ins, gt_matches, bbox = extract_batch(dataset, config)
+    print("gt_matches:", gt_matches)
 
     net.create_trunk(image_ph)
 
@@ -291,30 +244,19 @@ def train(dataset, net, config):
         seg_logits = None
 
     if args.instance:
-        # roi_bounds = ROI_bounds(net_config)
-        # roi_info = roi_bounds.cal_roi_info()
-
-        # rois = net.top_k_rois  # [batch, num_rois (layer y1 x1 y2 x2)]
-        # top_k_inds = net.top_k_inds  # [batch, rois_idxs]
-
-        # gt_inds = tf.batch_gather(gt_matches, top_k_inds)
-        # gt_inds = tf.cast(gt_inds, tf.int32)
-        # gt_bbox = tf.batch_gather(bbox, gt_inds)
-        # gt_ins = tf.batch_gather(ins, gt_inds)
-
-        # gt_matches_output = tf.boolean_mask(gt_matches, gt_matches > 0)
-        # gt_matches_idx = tf.where(gt_matches > 0)
-        # # gt_inds_output = tf.boolean_mask(gt_inds, gt_inds > 0)
-        # all_confidence = net.outputs['confidence']
-        # all_confidence = tf.reshape(all_confidence, (args.batch_size, -1))
-        # gt_confidence = tf.gather_nd(all_confidence, gt_matches_idx)
-        #
-        # gt_matches_id = gt_matches_idx[:, 1]
-        # gt_matches_id = tf.reshape(gt_matches_idx, (-1,))
-        # top_k_rois = tf.gather(roi_info, gt_matches_id // 6)
-        # top_k_rois = tf.reshape(top_k_rois, (args.batch_size, -1, 5))
-        pass
-        # instance_output = net.create_instance_head(dataset.num_classes, match_roi_info)
+        rois = net.top_k_rois  # [batch, num_rois (layer y1 x1 y2 x2)]
+        top_k_inds = net.top_k_inds  # [batch, rois_idxs]
+        gt_inds = tf.batch_gather(gt_matches, top_k_inds)
+        gt_inds = tf.cast(gt_inds, tf.int32)
+        gt_bbox = tf.batch_gather(bbox, gt_inds)
+        gt_ins = tf.batch_gather(ins, gt_inds)
+        gt_matches_output = tf.boolean_mask(gt_matches, gt_matches > 0)
+        gt_matches_idx = tf.where(gt_matches > 0)
+        gt_inds_output = tf.boolean_mask(gt_inds, gt_inds > 0)
+        confidence = net.outputs['confidence']
+        confidence = tf.reshape(confidence, (args.batch_size, -1))
+        gt_confidence = tf.gather_nd(confidence, gt_matches_idx)
+        instance_output = net.create_instance_head(dataset.num_classes, rois)
 
     loss, train_acc, mean_iou, update_mean_iou = objective(location, confidence, refine_ph,
                                                            classes_ph, inds_ph, seg_logits,
@@ -406,16 +348,14 @@ def train(dataset, net, config):
             log.info(format_str % (step, train_loss, acc, iou, -np.log10(lr),
                                 examples_per_sec, sec_per_batch))
 
-            # output_k_inds, output_inds, output_bbox, output_ins, output_match, gt_match_idx = \
-            #     sess.run([top_k_inds, gt_inds_output, gt_bbox, gt_ins, gt_matches_output, gt_matches_idx])
-            output_gt_bbox, output_gt_matches = sess.run([bbox, match_roi_info])
-            # print("top k inds: ", output_k_inds)
-            # print("output inds:", output_inds)
-            # print("output matches:", output_match)
-            # print("output match idx", gt_match_idx)
-            # print("output match confidence", output_match_confidence)
-            print("output bbox:", output_gt_bbox)
-            print("output gt matches:", output_gt_matches)
+            output_k_inds, output_inds, output_bbox, output_ins, output_match, gt_match_idx = \
+                sess.run([top_k_inds, gt_inds_output, gt_bbox, gt_ins, gt_matches_output, gt_matches_idx])
+            print("top k inds: ", output_k_inds)
+            print("output inds:", output_inds)
+            print("output matches:", output_match)
+            print("output match idx", gt_match_idx)
+            print("output bbox:", output_bbox)
+            sess.run([gt_confidence])
             # print("output ins:", output_ins)
 
             if step % 100 == 0:
@@ -432,13 +372,6 @@ def train(dataset, net, config):
 
         coord.request_stop()
         coord.join(threads)
-
-
-def pad_zero_to_size(tensor, size):
-    pads = size - tensor
-    paddings = [[0, bbox_pads], [0, 0]]
-    bbox = tf.pad(bbox, paddings)
-    bbox = tf.reshape(bbox, (args.instance_num, 4))
 
 
 def main(argv=None):  # pylint: disable=unused-argument

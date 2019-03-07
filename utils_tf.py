@@ -177,7 +177,14 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
         seg = tf.squeeze(tf.image.resize_nearest_neighbor(seg, [seg_shape, seg_shape]))
         seg = tf.cast(tf.round(seg), tf.int64)
     if ins is not None:
-        ins_shape = args.ins_shape
+        # ins_shape = args.ins_shape
+        # # add a dim because tf.image.resize needs 4-d tensor
+        # ins = tf.expand_dims(img[..., 4:], 0)
+        # # squeeze the first dim after resize
+        # ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
+        # ins_reshape = tf.stack([args.instance_num, ins_shape, ins_shape])
+
+        ins_shape = img_size
         # add a dim because tf.image.resize needs 4-d tensor
         ins = tf.expand_dims(img[..., 4:], 0)
         # squeeze the first dim after resize
@@ -185,7 +192,7 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
         ins_reshape = tf.stack([args.instance_num, ins_shape, ins_shape])
         ins = tf.reshape(ins, ins_reshape)
         ins = tf.cast(tf.round(ins), tf.int64)
-        print("ins shape: ", ins.shape)
+
     return img_out, gt_bboxes, gt_cats, seg, ins
 
 

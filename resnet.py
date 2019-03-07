@@ -32,7 +32,8 @@ class ResNet(object):
         self.reuse = reuse
         self.training = training
         self.layers = self.config['layers']
-        self.roi_bounds = roi_bounds(config)
+        self.roi_bounds = ROI_bounds(config)
+        (config)
         if depth == 50:
             self.num_block3 = 5
             self.scope = DEFAULT_SCOPE_50
@@ -185,45 +186,45 @@ class ResNet(object):
                     self.outputs.update(ssd_end_points)
         all_confidences = tf.concat(confidences, 1)  # [layer_num, batch_size, wh * num_priors, num_classes]
         all_locations = tf.concat(locations, 1)
-        k = args.top_k_confidences
-        # top_confidences shape [layer_num, batch_size, wh * num_priors]
-        top_confidences, top_inds = tf.nn.top_k(all_confidences, 1)
-        # top_confidences shape [batch_size, layers_num * wh * num_priors]
-        top_confidences = tf.reshape(top_confidences, (batch_size, -1))
-        # [batch_size, k(100)] the top k scores and indices
-        top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
-        # need to eliminate all aspect_ratios (all the aspects num are 6)
-        top_k_confidences = top_confidences // 6
-        top_k_inds = top_k_inds // 6
-        # top_k_confidences = tf.reshape(top_k_confidences, (-1,))
-        top_k_inds = tf.reshape(top_k_inds, (-1,))
-
-        # eliminate same aspect_ratio
-        # top_k_inds, idx = tf.unique(top_k_inds)
-        # top_k_confidences = tf.gather(top_k_confidences, idx)
-
-        # top_k_inds = tf.reshape(top_k_inds, (batch_size, -1))
-        # top_k_inds, _ = tf.nn.top_k(top_k_inds, k)
+        # k = args.top_k_confidences
+        # # top_confidences shape [layer_num, batch_size, wh * num_priors]
+        # top_confidences, top_inds = tf.nn.top_k(all_confidences, 1)
+        # # top_confidences shape [batch_size, layers_num * wh * num_priors]
+        # top_confidences = tf.reshape(top_confidences, (batch_size, -1))
+        # # [batch_size, k(100)] the top k scores and indices
+        # top_k_confidences, top_k_inds = tf.nn.top_k(top_confidences, k)
+        # # need to eliminate all aspect_ratios (all the aspects num are 6)
+        # top_k_confidences = top_confidences // 6
+        # top_k_inds = top_k_inds // 6
+        # # top_k_confidences = tf.reshape(top_k_confidences, (-1,))
         # top_k_inds = tf.reshape(top_k_inds, (-1,))
-
-        roi_info = self.roi_bounds.cal_roi_info()
-        # shape [batch*num_rois (layer y1 x1 y2 x2)]
-        top_k_rois = tf.gather(roi_info, top_k_inds)
-        self.top_k_inds = tf.reshape(top_k_inds, (batch_size, k))
-        top_k_rois = tf.reshape(top_k_rois,
-                                (batch_size, k, 5))  # tf.shape(top_k_rois)[1:]))
-        self.top_k_rois = top_k_rois
-        # top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
-
-        # top_k_inds_perbatch = []
-        # # for each batch
-        # for i in range(batch_size):
-        #     confidence_i = biggest_confidence[:, i]
-        #     layer_num, wh_mul_numPriors = tf.shape(confidence_i)
-        #     # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
-        #     top_values, top_indices = tf.nn.top_k(tf.reshape(confidence_i, (-1,)), k)
-        #     self.roi_bounds.get_from_arrs(top_indices, top_values)
-        #     top_k_inds_perbatch.append(top_indices)
+        #
+        # # eliminate same aspect_ratio
+        # # top_k_inds, idx = tf.unique(top_k_inds)
+        # # top_k_confidences = tf.gather(top_k_confidences, idx)
+        #
+        # # top_k_inds = tf.reshape(top_k_inds, (batch_size, -1))
+        # # top_k_inds, _ = tf.nn.top_k(top_k_inds, k)
+        # # top_k_inds = tf.reshape(top_k_inds, (-1,))
+        #
+        # roi_info = self.roi_bounds.cal_roi_info()
+        # # shape [batch*num_rois (layer y1 x1 y2 x2)]
+        # top_k_rois = tf.gather(roi_info, top_k_inds)
+        # self.top_k_inds = tf.reshape(top_k_inds, (batch_size, k)) * 6
+        # top_k_rois = tf.reshape(top_k_rois,
+        #                         (batch_size, k, 5))  # tf.shape(top_k_rois)[1:]))
+        # self.top_k_rois = top_k_rois
+        # # top_k_arrs = self.roi_bounds.get_from_arrs(top_k_inds, top_k_confidences)
+        #
+        # # top_k_inds_perbatch = []
+        # # # for each batch
+        # # for i in range(batch_size):
+        # #     confidence_i = biggest_confidence[:, i]
+        # #     layer_num, wh_mul_numPriors = tf.shape(confidence_i)
+        # #     # the shape of top_indices: k, top k from [layer_num * wh * num_priors]
+        # #     top_values, top_indices = tf.nn.top_k(tf.reshape(confidence_i, (-1,)), k)
+        # #     self.roi_bounds.get_from_arrs(top_indices, top_values)
+        # #     top_k_inds_perbatch.append(top_indices)
 
         self.outputs['location'] = all_locations
         self.outputs['confidence'] = all_confidences
@@ -257,13 +258,6 @@ class ResNet(object):
         ROIs: [batch, num_rois, H, W, C], the C of the initial Rois may not identical
         so it needs a preprocess first.
         """
-        feature_maps = []
-        for i in range(len(self.layers)):
-            feature_maps.append(self.outputs[self.layers[i]])
-
-        x = PyramidROIExtract([args.det_kernel, args.det_kernel],
-                                  self.config,
-                                  name="roi_align_mask")([rois] + feature_maps)
         # test_x = tf.random_uniform((16, 700, 3, 3, 512))
         # print('test x shape: ', test_x.shape, tf.shape(test_x))
         # print('test x: ', test_x)
@@ -334,7 +328,7 @@ class ResNet(object):
         return slim.assign_from_checkpoint(self.ckpt, variables) + (variables, )
 
 
-class roi_bounds(object):
+class ROI_bounds(object):
     def __init__(self, config):
         self.config = config
         self.fm_sizes = self.config["fm_sizes"]
@@ -431,7 +425,7 @@ class PyramidROIExtract(KE.Layer):
     def __init__(self, roi_shape, config, **kwargs):
         super(PyramidROIExtract, self).__init__(**kwargs)
         self.roi_shape = tuple(roi_shape)
-        self.num_rois = args.top_k_confidences
+        self.num_rois = args.instance_num
         self.config = config
         self.roi_layer_num = len(self.config['fm_sizes'])
 
@@ -461,12 +455,31 @@ class PyramidROIExtract(KE.Layer):
             level_rois = tf.stop_gradient(level_rois)
             roi_indices = tf.stop_gradient(roi_indices)
             # Result: [batch * num_rois, output_h, output_w, channels]
+            # p.s. the batch infomation is lost when using gather_nd to
+            # extract the target level
             rois.append(tf.image.crop_and_resize(
                 feature_maps[i], level_rois, roi_indices, self.roi_shape,
                 method="bilinear"))
 
+        # Pack rois features into one tensor
         rois = tf.concat(rois, axis=0)
-        # print('rois shape:', rois.shape)
+
+        # Pack roi_to_level mapping into one array add another
+        # column representing the order of roi boxes
+        roi_to_level = tf.concat(roi_to_level, axis=0)
+        roi_range = tf.expand_dims(tf.range(tf.shape(roi_to_level)[0]), 1)
+        roi_to_level = tf.concat([tf.cast(roi_to_level, tf.int32), roi_range],
+                                 axis=1)
+
+        # Rearrange selected features to match the order of the original boxes
+        # Sort roi_to_level by batch then roi index
+        # TF dosen't have a way to sort by two columns, so merge them and sort.
+        sorting_tensor = roi_to_level[:, 0] * 100000 + roi_to_level[:, 1]
+        ix = tf.nn.top_k(sorting_tensor, k=tf.shape(
+            roi_to_level)[0]).indices[::-1]
+        ix = tf.gather(roi_to_level[:, 2], ix)
+        rois = tf.gather(rois, ix)
+
         rois_shape = tf.concat([tf.shape(roi_pos)[:1],  # batch
                                 tf.reshape(tf.constant(self.num_rois), (1,)),  # -1
                                 tf.shape(rois)[1:]], axis=0)  # output_h, output_w, channels
