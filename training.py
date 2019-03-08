@@ -161,6 +161,11 @@ def objective(location, confidence, refine_ph, classes_ph,
         y_true = tf.gather(target_masks, positive_ix)
         y_pred = tf.gather_nd(pred_masks, indices)
 
+        y_true_summary = tf.image.grayscale_to_rgb(tf.expand_dims(y_true, -1))
+        y_pred_summary = tf.image.grayscale_to_rgb(tf.expand_dims(y_pred, -1))
+        tf.summary.image('instance_image/true', y_true_summary)
+        tf.summary.image('instance_image/pred', y_pred_summary)
+
         # Compute binary cross entropy. If no positive ROIs, then return 0.
         # shape: [batch, roi, num_classes]
         loss = K.switch(tf.size(y_true) > 0,
