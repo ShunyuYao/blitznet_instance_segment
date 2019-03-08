@@ -244,6 +244,7 @@ def extract_batch(dataset, config):
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
+        augged_ins = ins
 
         # bbox_pads = args.instance_num - tf.shape(bbox)[0]
         # paddings = [[0, bbox_pads], [0, 0]]
@@ -295,7 +296,7 @@ def extract_batch(dataset, config):
         ins_cats = ins_cats[:args.instance_num]
         ins_cats = tf.reshape(ins_cats, (args.instance_num,))
 
-        return tf.train.shuffle_batch([im, inds, refine, cats, ins_cats, seg, ins, match_roi_info],
+        return tf.train.shuffle_batch([im, inds, refine, cats, ins_cats, seg, ins, match_roi_info, augged_ins],
                                       args.batch_size, 2048, 64, num_threads=4)
 
 def extract_matched_gt_instance(bbox, ins, roi_shape):
@@ -306,7 +307,11 @@ def extract_matched_gt_instance(bbox, ins, roi_shape):
     return ins
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, ins_classes, seg_gt, ins, match_roi_info = extract_batch(dataset, config)
+    image_ph, inds_ph, refine_ph, classes_ph, ins_classes, seg_gt, ins, match_roi_info, ins_summary = extract_batch(dataset, config)
+
+    ins_summary = tf.reshape(ins_summary, (-1, ins_summary[2], ins_summary[3]))
+    ins_rgb = tf.image.grayscale_to_rgb(tf.expand_dims(ins_summary, -1))
+    tf.summary.image('image/gt_instance', ins_rgb)
 
     net.create_trunk(image_ph)
 
