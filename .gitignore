@@ -3,9 +3,11 @@ __pycache__/*
 demodemo
 archive/
 Data/
-DataSets/
+Datasets/
+Dataset/
 Results/
 Logs/
 Weights_imagenet/
 Datasets/
+notebook/
 nohup.out
