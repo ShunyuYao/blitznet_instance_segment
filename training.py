@@ -309,6 +309,9 @@ def extract_batch(dataset, config):
                                           [args.ins_shape, args.ins_shape], gt_matches)
         ins = tf.reshape(ins, (args.instance_num, args.ins_shape, args.ins_shape))
 
+        tf.summary.tensor_summary('tensor/bbox_matches', bbox_matches)
+        tf.summary.tensor_summary('tensor/gt_matches', gt_matches)
+
         ins_cats = tf.gather(cats, gt_matches_idx)
         need_pad = args.instance_num > tf.shape(ins_cats)[0]
         pads = tf.cond(need_pad,
