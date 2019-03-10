@@ -21,7 +21,7 @@ matplotlib.use('Agg')
 from vgg import VGG
 from resnet import ResNet, PyramidROIExtract, ROI_bounds
 from utils import print_variables
-from utils_tf import yxyx_to_xywh, data_augmentation
+from utils_tf import yxyx_to_xywh, xywh_to_yxyx, data_augmentation
 from datasets import get_dataset
 from boxer import PriorBoxGrid
 
@@ -144,6 +144,10 @@ def objective(location, confidence, refine_ph, classes_ph,
         target_class_ids = K.reshape(target_class_ids, (-1,))
         mask_shape = tf.shape(target_masks)
         target_masks = K.reshape(target_masks, (-1, mask_shape[2], mask_shape[3]))
+
+        target_masks = target_masks > 0
+        target_masks = tf.cast(target_masks, tf.float32)
+
         pred_shape = tf.shape(pred_masks)
         pred_masks = K.reshape(pred_masks,
                                (-1, pred_shape[2], pred_shape[3], pred_shape[4]))
@@ -161,10 +165,12 @@ def objective(location, confidence, refine_ph, classes_ph,
         y_true = tf.gather(target_masks, positive_ix)
         y_pred = tf.gather_nd(pred_masks, indices)
 
-        y_true_summary = tf.image.grayscale_to_rgb(tf.expand_dims(y_true, -1))
-        y_pred_summary = tf.image.grayscale_to_rgb(tf.expand_dims(y_pred, -1))
-        tf.summary.image('instance_image/true', y_true_summary)
-        tf.summary.image('instance_image/pred', y_pred_summary)
+        y_true_summary = tf.expand_dims(y_true, -1)
+        y_pred_summary = tf.expand_dims(y_pred, -1)
+        y_pred_summary = y_pred_summary > 0.5
+        y_pred_summary = tf.cast(y_pred_summary, tf.float32)
+        tf.summary.image('instance_image/true', y_true_summary, max_outputs=5)
+        tf.summary.image('instance_image/pred', y_pred_summary, max_outputs=5)
 
         # Compute binary cross entropy. If no positive ROIs, then return 0.
         # shape: [batch, roi, num_classes]
@@ -192,7 +198,7 @@ def objective(location, confidence, refine_ph, classes_ph,
 
     if args.instance:
         ins_loss = instance_loss_graph(target_masks, target_class_ids, pred_masks)
-        the_loss += ins_loss
+        the_loss += ins_loss * 15
 
     regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     wd_loss = tf.add_n(regularization_losses)
@@ -216,13 +222,17 @@ def extract_batch(dataset, config):
                                    'image/instance',
                                    'image/height',
                                    'image/width'])
-            print("ins: ", ins)
-            print("bbox: ", bbox)
-            print("gt: ", gt)
-            ins_shape = tf.stack([im_h, im_w, 20], axis=0)
+
+            ins_num = tf.cast(tf.shape(bbox)[0], tf.int64)
+            ins_shape = tf.stack([ins_num, im_h, im_w], axis=0)
             ins = tf.reshape(ins, ins_shape)
+            ins = tf.transpose(ins, [1, 2, 0])
             pads = args.instance_num - tf.shape(ins)[-1]
             ins = tf.pad(ins, [[0, 0], [0, 0], [0, pads]])
+            # ins_summary = tf.image.resize_images(ins, (300, 300))
+            # ins_summary = tf.transpose(ins_summary, [2, 0, 1])
+            # ins_summary = ins_summary[0]
+            # ins_summary = tf.reshape(ins_summary, [300, 300])
 
         elif args.segment:
             im, bbox, gt, seg = data_provider.get(['image', 'object/bbox', 'object/label',
@@ -233,8 +243,14 @@ def extract_batch(dataset, config):
                                    'image/instance',
                                    'image/height',
                                    'image/width'])
-            ins_shape = tf.stack([im_h, im_w, args.instance_num], axis=0)
+
+            ins_num = tf.cast(tf.shape(bbox)[0], tf.int64)
+            ins_shape = tf.stack([ins_num, im_h, im_w], axis=0)
             ins = tf.reshape(ins, ins_shape)
+            ins = tf.transpose(ins, [1, 2, 0])
+            pads = args.instance_num - tf.shape(ins)[-1]
+            ins = tf.pad(ins, [[0, 0], [0, 0], [0, pads]])
+            seg = tf.expand_dims(tf.zeros(tf.shape(im)[:2]), 2)
 
         else:
             im, bbox, gt = data_provider.get(['image', 'object/bbox', 'object/label'])
@@ -244,14 +260,9 @@ def extract_batch(dataset, config):
         bbox = yxyx_to_xywh(tf.clip_by_value(bbox, 0.0, 1.0))
         im, bbox, gt, seg, ins = data_augmentation(im, bbox, gt, seg, ins, config)
         inds, cats, refine, gt_matches = bboxer.encode_gt_tf(bbox, gt)
-        augged_ins = ins
 
-        # bbox_pads = args.instance_num - tf.shape(bbox)[0]
-        # paddings = [[0, bbox_pads], [0, 0]]
-        # bbox = tf.pad(bbox, paddings)
-        # bbox = tf.reshape(bbox, (args.instance_num, 4))
+        # ins_summary = ins
 
-        # print("gt_matches shape: ", gt_matches)
         not_empty_gt_matches = tf.reduce_sum(gt_matches) > 0
         gt_matches_idx = tf.reshape(tf.where(gt_matches > 0), (-1,))
         # gt_matches_idx, _ = tf.unique(gt_matches_idx)
@@ -270,6 +281,10 @@ def extract_batch(dataset, config):
                        lambda: 0)
         bbox_matches = tf.pad(bbox_matches, [[0, pads], [0, 0]])
         bbox_matches = bbox_matches[:args.instance_num, :]
+
+        # ins = tf.gather(ins, gt_matches)
+        # ins = tf.pad(ins, [[0, pads], [0, 0], [0, 0]])
+        # ins = ins[:args.instance_num, ...]
         # if tf.reduce_sum(gt_matches) > 0:
         #     gt_matches_idx = tf.where(gt_matches > 0)
         #     match_roi_info = tf.squeeze(tf.gather(roi_info, gt_matches_idx // 6))  # (?, 5)
@@ -283,8 +298,15 @@ def extract_batch(dataset, config):
         # else:
         #     match_roi_info = tf.zeros((args.instance_num, 5))
 
+        need_pad = args.instance_num > tf.shape(gt_matches)[0]
+        pads = tf.cond(need_pad,
+                       lambda: args.instance_num - tf.shape(gt_matches)[0],
+                       lambda: 0)
+        gt_matches = tf.pad(gt_matches, [[0, pads]])
+        gt_matches = gt_matches[:args.instance_num]
+
         ins = extract_matched_gt_instance(bbox_matches, ins,
-                                          [args.ins_shape, args.ins_shape])
+                                          [args.ins_shape, args.ins_shape], gt_matches)
         ins = tf.reshape(ins, (args.instance_num, args.ins_shape, args.ins_shape))
 
         ins_cats = tf.gather(cats, gt_matches_idx)
@@ -296,22 +318,34 @@ def extract_batch(dataset, config):
         ins_cats = ins_cats[:args.instance_num]
         ins_cats = tf.reshape(ins_cats, (args.instance_num,))
 
-        return tf.train.shuffle_batch([im, inds, refine, cats, ins_cats, seg, ins, match_roi_info, augged_ins],
+        return tf.train.shuffle_batch([im, inds, refine, cats, ins_cats, seg, ins, match_roi_info],
                                       args.batch_size, 2048, 64, num_threads=4)
 
-def extract_matched_gt_instance(bbox, ins, roi_shape):
+# def extract_matched_gt_instance(bbox, ins, roi_shape):
+#     ins = tf.expand_dims(ins, -1)
+#     box_ind = tf.range(args.instance_num)
+#     print("true ins shape: ", ins)
+#     ins = tf.image.crop_and_resize(ins, bbox, box_ind, tuple(roi_shape))
+#     ins = tf.squeeze(ins)
+#     return ins
+
+def extract_matched_gt_instance(bbox, ins, roi_shape, gt_matches):
+    bbox = xywh_to_yxyx(bbox)
     ins = tf.expand_dims(ins, -1)
-    box_ind = tf.range(args.instance_num)
-    ins = tf.image.crop_and_resize(ins, bbox, box_ind, tuple(roi_shape))
+
+    ins = tf.image.crop_and_resize(ins, bbox, tf.cast(gt_matches, tf.int32), tuple(roi_shape))
     ins = tf.squeeze(ins)
     return ins
 
 def train(dataset, net, config):
-    image_ph, inds_ph, refine_ph, classes_ph, ins_classes, seg_gt, ins, match_roi_info, ins_summary = extract_batch(dataset, config)
-
-    ins_summary = tf.reshape(ins_summary, (-1, ins_summary[2], ins_summary[3]))
-    ins_rgb = tf.image.grayscale_to_rgb(tf.expand_dims(ins_summary, -1))
-    tf.summary.image('image/gt_instance', ins_rgb)
+    image_ph, inds_ph, refine_ph, classes_ph, ins_classes, seg_gt, ins, match_roi_info = extract_batch(dataset, config)
+    # ins_summary = ins
+    # print("ins_summary shape", ins_summary)
+    # ins_summary = tf.reshape(ins_summary, (-1, tf.shape(ins_summary)[2], tf.shape(ins_summary)[3]))
+    # ins_summary = tf.expand_dims(ins_summary, -1)
+    # ins_summary = ins_summary > 0
+    # ins_summary = tf.cast(ins_summary, tf.float32)
+    # tf.summary.image('image/gt_instance', ins_summary, max_outputs=2)
 
     net.create_trunk(image_ph)
 
@@ -458,6 +492,9 @@ def train(dataset, net, config):
             # print("output match confidence", output_match_confidence)
             # print("output gt matches:", output_gt_matches)
             # print("output ins:", output_ins)
+            # output_bbox, output_gt_match = sess.run([bbox, gt_match])
+            # print('output_bbox: ', output_bbox)
+            # print('output_gt_match: ', output_gt_match)
 
             if step % 100 == 0:
                 summary_str = sess.run(summary_op)
