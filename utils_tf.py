@@ -189,9 +189,10 @@ def data_augmentation(img, gt_bboxes, gt_cats, seg, ins, config):
         ins = tf.expand_dims(img[..., 4:], 0)
         # squeeze the first dim after resize
         ins = tf.squeeze(tf.image.resize_bilinear(ins, [ins_shape, ins_shape]))
-        ins_reshape = tf.stack([args.instance_num, ins_shape, ins_shape])
+        ins_reshape = tf.stack([ins_shape, ins_shape, args.instance_num])
         ins = tf.reshape(ins, ins_reshape)
         ins = tf.cast(tf.round(ins), tf.int64)
+        ins = tf.transpose(ins, [2, 0, 1])
 
     return img_out, gt_bboxes, gt_cats, seg, ins
 

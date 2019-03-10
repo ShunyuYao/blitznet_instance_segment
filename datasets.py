@@ -11,7 +11,7 @@ from math import ceil
 
 slim = tf.contrib.slim
 instance_nums = 20  # instance nums per image
-DATASETS_ROOT = "/home/yaosy/Diskb/projects/blitznet_instance_segment/Datasets"
+# DATASETS_ROOT = "/home/yaosy/Diskb/projects/blitznet_instance_segment/Datasets"
 
 def normalize_bboxes(bboxes, w, h):
     """rescales bboxes to [0, 1]"""
@@ -193,7 +193,8 @@ def create_coco_dataset(split):
 
                 segmentation = np.zeros((h, w), dtype=np.uint8)
                 coco_anns = loader._get_coco_annotations(f, only_instances=False)
-                instances = np.zeros([instance_nums, h, w], dtype=np.uint8)
+                # instances = np.zeros([instance_nums, h, w], dtype=np.uint8)
+                instances = []
                 for num_ann, ann in enumerate(coco_anns):
                     mask = loader._read_segmentation(ann, h, w)
                     cid = loader.coco_ids_to_internal[ann['category_id']]
@@ -202,10 +203,12 @@ def create_coco_dataset(split):
 
                     instance = np.zeros((h, w), dtype=np.uint8)
                     instance[mask > 0] = cid
-                    if num_ann < instance_nums:
-                        instances[num_ann] = instance
+                    instance = list(instance.reshape(-1))
+                    instances.extend(instance)
+                    # if num_ann < instance_nums:
+                    #     instances[num_ann] = instance
 
-                instances = instances.reshape(-1)
+                # instances = instances.reshape(-1)
                 png_string = sess.run(encoded_image,
                                       feed_dict={image_placeholder: segmentation})
                 example = _convert_to_example(path, image_data, gt_bb, gt_cats, diff, png_string,
