@@ -10,4 +10,5 @@ Logs/
 Weights_imagenet/
 Datasets/
 notebook/
+train_bash/
 nohup.out
