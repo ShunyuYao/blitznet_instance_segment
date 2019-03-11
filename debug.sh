@@ -1,0 +1,1 @@
+python training_debug.py --run_name=BlitzNet300_instance_debug --dataset=coco-seg --trunk=resnet50 --x4 --batch_size=4 --optimizer=adam --detect --instance --max_iterations=10000 --lr_decay 6000 7000 --instance_num 50
